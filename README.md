@@ -111,7 +111,7 @@ python main.py
 安装包输出位置：
 
 ```text
-installer\output\NTE_Drive_Calc_Setup_1.0.2.exe
+installer\output\NTE_Drive_Calc_Setup_x.x.x.exe
 ```
 
 ## 常见问题
