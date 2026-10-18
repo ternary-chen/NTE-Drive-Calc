@@ -49,6 +49,7 @@ class ForkLinkedCalculationImportTests(unittest.TestCase):
             );
         """)
         linked = "/Game/Fork/Buff_NewFork_Lv1"
+        child = "/Game/Calculation/Buff_Child"
         unlinked = "/Game/Fork/Buff_Unrelated"
         linked_without_modifiers = "/Game/Fork/Calculation_WithoutModifiers"
         connection.execute(
@@ -62,22 +63,29 @@ class ForkLinkedCalculationImportTests(unittest.TestCase):
             "INSERT INTO combat_blueprint_asset VALUES (?, ?, 'calculation', NULL, 1)",
             [
                 (linked, "Buff_NewFork_Lv1"),
+                (child, "Buff_Child"),
                 (unlinked, "Buff_Unrelated"),
                 (linked_without_modifiers, "Calculation_WithoutModifiers"),
             ],
         )
         connection.executemany(
             "INSERT INTO combat_blueprint_semantic_property VALUES (?, '$.Modifiers', 0, 'Modifiers', '[]')",
-            [(linked,), (unlinked,)],
+            [(linked,), (unlinked,), (child,)],
         )
+        # 真实故障是入口已解析、执行期子 Buff 被目录分类丢弃；循环引用不得重复导入。
+        for source, target in [(linked, child), (child, linked)]:
+            connection.execute(
+                "INSERT INTO combat_blueprint_semantic_property VALUES (?, '$.BuffEventEffectData', 0, 'BuffEventEffectData', ?)",
+                (source, json.dumps([{"ExecGEs": [{"GEClass": {"ObjectPath": target + ".0"}}]}])),
+            )
 
         probe = _Probe(connection)
         probe._import_buff_definitions()
 
         self.assertEqual(
-            [(linked, "buff")],
+            [(child, "buff"), (linked, "buff")],
             connection.execute(
-                "SELECT asset_path, definition_kind FROM buff_definition"
+                "SELECT asset_path, definition_kind FROM buff_definition ORDER BY asset_path"
             ).fetchall(),
         )
-        self.assertEqual({linked.casefold()}, probe.available)
+        self.assertEqual({linked.casefold(), child.casefold()}, probe.available)

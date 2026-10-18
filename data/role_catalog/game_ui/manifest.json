@@ -416,6 +416,10 @@
     "boss_05": "monsters/monster_static_clone/Boss_05.png",
     "boss_10": "monsters/monster_static_clone/Boss_10.png",
     "boss_26": "monsters/monster_static_clone/Boss_26.png",
+    "mon_19": "monsters/monster_static_big_world/mon_19.png",
+    "mon_2_green": "monsters/monster_static_big_world/mon_02.png",
+    "mon_3": "monsters/monster_static_big_world/mon_03.png",
+    "mon_4_var_green": "monsters/monster_static_big_world/mon_04.png",
     "boss_06": "monsters/families/Boss_06.png",
     "boss_016": "monsters/families/Boss_16.png",
     "boss_017": "monsters/families/Boss_17.png",
@@ -451,10 +455,6 @@
     "mon_038": "monsters/resources/mon_38_6914bc43.png",
     "mon_041": "monsters/resources/mon_41_86781473.png",
     "mon_048": "monsters/resources/mon_48_7c95e9e4.png",
-    "mon_19": "monsters/monster_static_big_world/mon_19.png",
-    "mon_2_green": "monsters/monster_static_big_world/mon_02.png",
-    "mon_3": "monsters/monster_static_big_world/mon_03.png",
-    "mon_4_var_green": "monsters/monster_static_big_world/mon_04.png",
     "boss_6": "monsters/families/Boss_06.png",
     "boss_16": "monsters/families/Boss_16.png",
     "boss_17": "monsters/families/Boss_17.png",
@@ -585,9 +585,9 @@
       "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_heiyu_256.player_heiyu_256",
       "width": 256,
       "height": 256,
-      "bytes": 134297,
-      "sha256": "4BA51CF412DDCC4F2781C59496CC7234960E5A212D41F677D4A2CB9CCC391E90",
-      "source_sha256": "B04067B046C84D65EFEEA69D7E58101D19ED1DC441A3CBC6D541D33A048EA394"
+      "bytes": 134275,
+      "sha256": "6B03B195B5CDB8E8D9C8A5B7814993299B0BB4179E38FF61780BDB0A5E354B41",
+      "source_sha256": "4B6F45AF08B342483F7DA96B1BB1FB881328AFFE4E337E7DA1037B79B14229BE"
     },
     "characters/1046.png": {
       "source_asset_path": "/Game/UI/UI_Icon/AvatarImage/256/player_046_256.player_046_256",
@@ -3357,37 +3357,37 @@
       "height": 256,
       "bytes": 20863
     },
-    "skills/Chaos_Melee.png": {
-      "source_asset_path": "/Game/UI/UI_Icon/Skill/Chaos_Melee.Chaos_Melee",
-      "source_sha256": "C622254DCFBBCD9CF16B75F6E58B38C6266367B13C5C79C2C0C3C7514895E10A",
-      "sha256": "C622254DCFBBCD9CF16B75F6E58B38C6266367B13C5C79C2C0C3C7514895E10A",
+    "skills/Akane_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Akane_Melee.Akane_Melee",
+      "source_sha256": "698CBEF3B01965E7CB03C4CE0221A5733CD129DC4F5E24335DFBDB684CF714FB",
+      "sha256": "698CBEF3B01965E7CB03C4CE0221A5733CD129DC4F5E24335DFBDB684CF714FB",
       "width": 256,
       "height": 256,
-      "bytes": 8315
+      "bytes": 7950
     },
-    "skills/Chaos_QTE.png": {
-      "source_asset_path": "/Game/UI/UI_Icon/Skill/Chaos_QTE.Chaos_QTE",
-      "source_sha256": "858069275B957178182B6F3C623049B5F71E3621F65B0EDE04654F84FF2A5D76",
-      "sha256": "858069275B957178182B6F3C623049B5F71E3621F65B0EDE04654F84FF2A5D76",
+    "skills/Akane_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Akane_QTE.Akane_QTE",
+      "source_sha256": "77356456DEBB6F882BD65ACB764F2B53F27AD9FCB851C030FE26B44513DCFD14",
+      "sha256": "77356456DEBB6F882BD65ACB764F2B53F27AD9FCB851C030FE26B44513DCFD14",
       "width": 256,
       "height": 256,
-      "bytes": 7223
+      "bytes": 6839
     },
-    "skills/Chaos_Skill.png": {
-      "source_asset_path": "/Game/UI/UI_Icon/Skill/Chaos_Skill.Chaos_Skill",
-      "source_sha256": "80DFE0A4346D1F6823E69EDB559DF5E6B08DD4415AD92934118EEE407BF9A0AE",
-      "sha256": "80DFE0A4346D1F6823E69EDB559DF5E6B08DD4415AD92934118EEE407BF9A0AE",
+    "skills/Akane_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Akane_Skill.Akane_Skill",
+      "source_sha256": "E7331958B7EF7EF30039A0E80798F4611164FB60B221275C70676BFA339F4A20",
+      "sha256": "E7331958B7EF7EF30039A0E80798F4611164FB60B221275C70676BFA339F4A20",
       "width": 256,
       "height": 256,
-      "bytes": 10141
+      "bytes": 9376
     },
-    "skills/Chaos_UltraSkill.png": {
-      "source_asset_path": "/Game/UI/UI_Icon/Skill/Chaos_UltraSkill.Chaos_UltraSkill",
-      "source_sha256": "0AE4278EF77A96BDD87DDB0BEFF4306E771AC0F18E7283A6B1D19901DC07D3E5",
-      "sha256": "0AE4278EF77A96BDD87DDB0BEFF4306E771AC0F18E7283A6B1D19901DC07D3E5",
+    "skills/Akane_Ultraskill1.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Akane_Ultraskill1.Akane_Ultraskill1",
+      "source_sha256": "6D20A2F5C133B2DCE79B1BA34A8132B6DC3C9233EA76CECA22EC7AD937723369",
+      "sha256": "6D20A2F5C133B2DCE79B1BA34A8132B6DC3C9233EA76CECA22EC7AD937723369",
       "width": 256,
       "height": 256,
-      "bytes": 12052
+      "bytes": 11027
     },
     "skills/BlackBird_Melee.png": {
       "source_asset_path": "/Game/UI/UI_Icon/Skill/BlackBird_Melee.BlackBird_Melee",
@@ -3452,6 +3452,38 @@
       "width": 256,
       "height": 256,
       "bytes": 19468
+    },
+    "skills/Chaos_Melee.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Chaos_Melee.Chaos_Melee",
+      "source_sha256": "C622254DCFBBCD9CF16B75F6E58B38C6266367B13C5C79C2C0C3C7514895E10A",
+      "sha256": "C622254DCFBBCD9CF16B75F6E58B38C6266367B13C5C79C2C0C3C7514895E10A",
+      "width": 256,
+      "height": 256,
+      "bytes": 8315
+    },
+    "skills/Chaos_QTE.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Chaos_QTE.Chaos_QTE",
+      "source_sha256": "858069275B957178182B6F3C623049B5F71E3621F65B0EDE04654F84FF2A5D76",
+      "sha256": "858069275B957178182B6F3C623049B5F71E3621F65B0EDE04654F84FF2A5D76",
+      "width": 256,
+      "height": 256,
+      "bytes": 7223
+    },
+    "skills/Chaos_Skill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Chaos_Skill.Chaos_Skill",
+      "source_sha256": "80DFE0A4346D1F6823E69EDB559DF5E6B08DD4415AD92934118EEE407BF9A0AE",
+      "sha256": "80DFE0A4346D1F6823E69EDB559DF5E6B08DD4415AD92934118EEE407BF9A0AE",
+      "width": 256,
+      "height": 256,
+      "bytes": 10141
+    },
+    "skills/Chaos_UltraSkill.png": {
+      "source_asset_path": "/Game/UI/UI_Icon/Skill/Chaos_UltraSkill.Chaos_UltraSkill",
+      "source_sha256": "0AE4278EF77A96BDD87DDB0BEFF4306E771AC0F18E7283A6B1D19901DC07D3E5",
+      "sha256": "0AE4278EF77A96BDD87DDB0BEFF4306E771AC0F18E7283A6B1D19901DC07D3E5",
+      "width": 256,
+      "height": 256,
+      "bytes": 12052
     },
     "skills/chiichan_melee.png": {
       "source_asset_path": "/Game/UI/UI_Icon/Skill/chiichan_melee.chiichan_melee",
@@ -4062,20 +4094,20 @@
       "bytes": 9113
     }
   },
-  "total_files": 447,
-  "total_bytes": 15811066,
-  "dataset_id": "cn_retail_reference_20260924_9030b45b",
-  "database_sha256": "500414EADB0EB59710271D5D064616523089EACB588D05BB0D784E570E0DD524",
+  "total_files": 451,
+  "total_bytes": 15846236,
+  "dataset_id": "cn_reference_20261017_fcf6c959",
+  "database_sha256": "7451BF108A1CEA2682719BB61764C61488EF9ACAAD40177F4756DBA91D52CF45",
   "unresolved_assets": [],
   "skills": {
     "GA_Adler_Melee": "skills/Adler_Melee.png",
     "GA_Adler_QTE": "skills/Adler_QTE.png",
     "GA_Adler_Skill": "skills/Adler_Skill.png",
     "GA_Adler_UltraSkill": "skills/Adler_UltraSkill.png",
-    "GA_Akane_Melee": "skills/Chaos_Melee.png",
-    "GA_Akane_QTE": "skills/Chaos_QTE.png",
-    "GA_Akane_Skill": "skills/Chaos_Skill.png",
-    "GA_Akane_UltraSkill": "skills/Chaos_UltraSkill.png",
+    "GA_Akane_Melee": "skills/Akane_Melee.png",
+    "GA_Akane_QTE": "skills/Akane_QTE.png",
+    "GA_Akane_Skill": "skills/Akane_Skill.png",
+    "GA_Akane_UltraSkill": "skills/Akane_Ultraskill1.png",
     "GA_BlackBird_Melee": "skills/BlackBird_Melee.png",
     "GA_BlackBird_QTE": "skills/BlackBird_QTE.png",
     "GA_BlackBird_Skill": "skills/BlackBird_Skill.png",

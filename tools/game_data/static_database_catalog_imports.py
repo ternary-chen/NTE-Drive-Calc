@@ -111,10 +111,12 @@ class CatalogImportMixin:
         for table, table_asset_path in (
             ("equipment_buff_curves", "/Game/DataTable/Equipment/CT_Equipmentbuff"),
             ("fork_buff_curves", "/Game/DataTable/Fork/CT_ForkBuff"),
+            ("abyss_buff_curves", "/Game/DataAssets/DataAssetSet/Abyss/CT_AbyssBuff"),
         ):
             rows.extend(
                 (table_asset_path, str(curve_id), curve, self.source_row_id(table, curve_id))
-                for curve_id, curve in self.rows[table].items()
+                # 角色页窄目录不读取深渊表；完整库/参考图鉴拥有该来源时必须同步正式曲线。
+                for curve_id, curve in self.rows.get(table, {}).items()
             )
         for table_asset_path, curve_id, curve, source_row_id in rows:
             self.connection.execute(

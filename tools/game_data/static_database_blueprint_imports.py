@@ -102,7 +102,7 @@ def _curated_blueprint_paths(root: Path) -> list[Path]:
         "Characters/Monster/boss_18/boss_18_player01/animation/**/*.json",
         "Blueprints/Abilities/Buff/Common/**/*.json",
         "Blueprints/Abilities/Buff/Abyss/Phases/P[89]/**/*.json",
-        "Blueprints/Abilities/Buff/Abyss/Phases/P1[012]/**/*.json",
+        "Blueprints/Abilities/Buff/Abyss/Phases/P1[0123]/**/*.json",
         "Blueprints/Abilities/Buff/element/**/*.json",
         "Blueprints/Abilities/Calculation/**/*.json",
         "Blueprints/Abilities/Condition/Player/**/*.json",
@@ -136,6 +136,18 @@ def _normalize_object_path(value: str) -> str:
         return value
     head, separator, _tail = value.rpartition(".")
     return head if separator else value
+
+
+def _local_export_metadata_reference(property_path: str, source: str, target: str) -> bool:
+    """包内对象元数据不是跨资源依赖；保留 Properties、Super 和外部 Template。
+
+    UE 导出的 Outer/CDO/函数表会大量重复本包路径。完整来源文件仍按哈希登记，
+    这些本地导出索引不进入用于战斗关系查询的依赖表。
+    """
+    return source.casefold() == target.casefold() and bool(re.fullmatch(
+        r"\$\[\d+\]\.(?:Outer|ClassDefaultObject|Children\[\d+\]|FuncMap\.[^.]+)",
+        property_path,
+    ))
 
 
 def _object_id(value: Any) -> str | None:
@@ -525,7 +537,9 @@ class BlueprintImportMixin:
                     if not isinstance(node, dict):
                         continue
                     object_paths = _object_paths(node)
-                    if object_paths is not None:
+                    if object_paths is not None and not _local_export_metadata_reference(
+                        property_path, asset_path, object_paths[0]
+                    ):
                         reference_rows.append(
                             (
                                 asset_path,
