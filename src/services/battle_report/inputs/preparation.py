@@ -81,13 +81,24 @@ def observe_pinned_scopes(lease, record, attempts, final, stop_requested):
             del lease._scope_snapshots[scope]
             changed = True
     for scope, attempt in attempts.items():
-        if scope in lease._scope_snapshots:
+        previous = lease._scope_snapshots.get(scope, {}).get("snapshot")
+        if previous and first_hit_snapshot_ready(previous, attempt, record):
             continue
-        frozen = lease._read_battle_snapshot(stop_requested, references=attempt.get("firstSnapshotRefs") or {})
+        references = attempt.get("configurationSnapshotRefs") or attempt.get("firstSnapshotRefs") or {}
+        frozen = lease._read_battle_snapshot(stop_requested, references=references)
+        # 首击可能早于角色域完成读取；局部 pinned 响应不能永久阻止补齐。
+        # 仅消费修订与首击证据一致的完整预备输入，不用结算背包冒充首击。
+        if not first_hit_snapshot_ready(frozen, attempt, record):
+            prepared = lease._preparation.take_matching(attempt, record)
+            if prepared is not None:
+                frozen = prepared
         if not final and frozen.get("state") == "unavailable":
             continue
-        lease._scope_snapshots[scope] = {"attempt_id": attempt["attemptId"], "snapshot": frozen}
-        changed = True
+        if previous is not None:
+            frozen = retain_scope_pending_snapshot(previous, frozen, attempt, record)
+        if frozen != previous:
+            lease._scope_snapshots[scope] = {"attempt_id": attempt["attemptId"], "snapshot": frozen}
+            changed = True
     # 为下一次首击预热当前缓存，不替换已 pinned 的尝试；
     # 预备读取完成也不是本次采集启动的前提。
     if not final:

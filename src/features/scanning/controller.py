@@ -253,25 +253,6 @@ class ScanningController(QObject):
         else:
             self._prepare_calculation(lambda: _do_exec(self))
 
-    def choose_axis_allocation(self, selected_roles, *, initial_request=None):
-        from src.features.allocation.axis_selection_dialog import AxisAllocationSelectionDialog
-        if self._axis_selection_service_provider is None:
-            QMessageBox.warning(self.dialog_parent, "轴优化未就绪", "当前账号轴选择服务未就绪。")
-            return None
-        service = self._axis_selection_service_provider()
-        try:
-            choices = service.choices(selected_roles)
-        except (ValueError, RuntimeError) as error:
-            QMessageBox.warning(self.dialog_parent, "轴优化未就绪", str(error))
-            return None
-        dialog = AxisAllocationSelectionDialog(service=service, choices=choices, initial_request=initial_request,
-                                                parent=self.dialog_parent)
-        try:
-            return dialog.selection if dialog.exec() == QDialog.Accepted else None
-        finally:
-            dialog.close()
-            dialog.deleteLater()
-
     def start_axis_allocation_from_battle(self, request):
         """明确报告来自边际页；走同一冻结服务，不模拟点击或持久化候选。"""
         if self.is_running():
@@ -280,10 +261,6 @@ class ScanningController(QObject):
         self.build_page()
         self.navigate("execute")
         self.scan_group.button(4).setChecked(True)
-        self.strategy_group.button(3).setChecked(True)
-        if not self.role_selector.get_selected():
-            QMessageBox.information(self.dialog_parent, "请选择计算成员", "请先在计算页明确选择角色和优先组，再按本轴优化。")
-            return
         def start():
             _do_exec(self, axis_initial_request=request)
         if self._prepare_calculation is None:
@@ -333,6 +310,10 @@ class ScanningController(QObject):
 
     def reset_account_state(self) -> None:
         self.request_stop()
+        self.team_axis_selection = None
+        if hasattr(self, "team_axis_check"):
+            self.team_axis_check.setChecked(False)
+            self.team_axis_summary.clear()
         self._vision_commit.reset_account_state()
         self._pending_archive_paths = []
         self._pending_parse_only = False
@@ -345,6 +326,8 @@ class ScanningController(QObject):
         self._allocation_controller.reset_account_state()
 
     def _reload_allocation_filter_settings(self) -> None:
+        from src.features.allocation.team_axis_controls import reload_search_mode
+        reload_search_mode(self)
         service = AllocationFilterSettingsService(
             self.app_context.account.user_database_path
         )

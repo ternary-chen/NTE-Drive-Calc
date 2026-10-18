@@ -43,7 +43,7 @@ class MainWindowNavigationMixin:
         for text, oid, slot in [
             ("—", "", self.showMinimized),
             ("□", "", self._toggle_max),
-            ("✕", "btnClose", self.close),
+            ("✕", "btnClose", self.hide_to_tray),
         ]:
             b = QPushButton(text)
             b.setObjectName(oid)
@@ -136,6 +136,8 @@ class MainWindowNavigationMixin:
                 page = self.basic_weight_page
             elif item.key == "my_role":
                 page = build_official_role_page(self)
+            elif item.key == "teams":
+                page = self.team_controller.page
             elif item.key == "static_catalog":
                 page = self.static_catalog_page.build()
             else:
@@ -221,6 +223,8 @@ class MainWindowNavigationMixin:
             self.basic_weight_page.refresh()
         elif item.key == "my_role":
             refresh_official_role_page(self)
+        elif item.key == "teams":
+            self.team_controller.refresh()
         elif item.key == "static_catalog":
             self.static_catalog_page.refresh()
         else:

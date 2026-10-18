@@ -19,7 +19,7 @@ from src.integrations.launcher_process import LauncherProcessProbeError, selecte
 from src.integrations.operation_guard import require_operation
 from src.integrations.legacy_game_proxy import remove_legacy_game_proxy
 from src.integrations.game_component_bundle import inspect_game_component_bundle
-from src.integrations.native_plugin_bundle import NATIVE_PLUGIN_LAYOUTS, HOT_PLUGIN_LAYOUTS, HOT_PLUGIN_DEPLOYMENT_PATHS, PERFORMANCE_DEPLOYMENT_PATHS, HUD_DEPLOYMENT_PATHS
+from src.integrations.native_plugin_bundle import NATIVE_PLUGIN_LAYOUTS, HOT_PLUGIN_LAYOUTS, HOT_PLUGIN_DEPLOYMENT_PATHS, PERFORMANCE_DEPLOYMENT_PATHS, HUD_DEPLOYMENT_PATHS, TRAINING_DEPLOYMENT_PATHS
 from src.integrations.components.loader_workspace import (
     native_loader_payload_relative, inspect_native_loader_workspace, prepare_native_loader_workspace,
 )
@@ -143,6 +143,7 @@ class ModPluginLoadingService:
             allowed_paths.update(HOT_PLUGIN_DEPLOYMENT_PATHS.values())
             allowed_paths.update(PERFORMANCE_DEPLOYMENT_PATHS.values())
             allowed_paths.update(HUD_DEPLOYMENT_PATHS.values())
+            allowed_paths.update(TRAINING_DEPLOYMENT_PATHS.values())
         if (not isinstance(managed_files, dict) or not set(managed_files).issubset(allowed_paths)
                 or any(not isinstance(value, str) or len(value) != 64 or any(char not in '0123456789abcdef' for char in value)
                        for value in managed_files.values())):

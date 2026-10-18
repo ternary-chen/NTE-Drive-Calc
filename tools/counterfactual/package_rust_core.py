@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.integrations.nte_analysis_core import NteAnalysisCoreClient
+from src.integrations.nte_analysis_core import ENGINE_VERSION, NteAnalysisCoreClient
 from tools.game_data.build_analysis_catalogs import validate_catalog_inputs
 from tools.counterfactual.rust_core_build import build_analysis_core, verify_build_record
 
@@ -47,7 +47,7 @@ def main() -> int:
     version = client.version()
     capabilities = version.get("capabilities")
     if (
-        version.get("engine_version") != "0.3.0"
+        version.get("engine_version") != ENGINE_VERSION
         or not isinstance(capabilities, list)
         or "battle_page_v1" not in capabilities
         or "main_static_catalog_v1" not in capabilities

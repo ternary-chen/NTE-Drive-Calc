@@ -28,7 +28,8 @@ def project_report_metrics(summary, analysis) -> BattleReportMetrics:
     scoped = start != battle_start or end != battle_end
     intervals = tuple(getattr(analysis, "time_stop_intervals", ()))
     partial_clock = getattr(analysis, "time_stop_source_kind", "") == "nte_core_partial"
-    if scoped:
+    discarded = tuple(getattr(analysis, "discarded_attempt_intervals", ()))
+    if scoped or discarded:
         # 原生范围伤害已含过量修正与正式生命结算；残缺轴没有观测时仍保留未知。
         observed_damage = float(analysis.effective_damage)
         has_outgoing = any(hit.direction == "outgoing" for hit in analysis.hits)
@@ -57,10 +58,11 @@ def project_report_metrics(summary, analysis) -> BattleReportMetrics:
         start = battle_start
     active_us = projected_range_duration_us(
         start, start + raw_duration_us,
-        intervals=() if partial_clock else intervals, mode=ACTIVE_TIME_MODE,
+        intervals=discarded + (() if partial_clock else intervals), mode=ACTIVE_TIME_MODE,
     )
+    real_duration_us = raw_duration_us - time_stop_overlap_us(start, start + raw_duration_us, discarded)
     return BattleReportMetrics(
         damage=damage, damage_taken=taken, duration=max(0.001, active_us / 1_000_000),
-        real_duration=raw_duration_us / 1_000_000, partial_clock=partial_clock,
-        incomplete_scope=scoped and not analysis.axis_complete,
+        real_duration=max(0, real_duration_us) / 1_000_000, partial_clock=partial_clock,
+        incomplete_scope=(scoped or bool(discarded)) and not analysis.axis_complete,
     )

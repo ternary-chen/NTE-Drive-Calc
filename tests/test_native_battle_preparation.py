@@ -11,7 +11,7 @@ from tests.test_battle_capture_build_freeze import native_snapshot
 def test_pinned_warmup_requires_live_domains_but_preserves_existing_first_hit():
     from types import SimpleNamespace
     from src.services.battle_report.inputs.preparation import observe_pinned_scopes
-    frozen = {"attempt_id": "1", "snapshot": {"state": "observed", "retention": "dll_pinned"}}
+    frozen = {"attempt_id": "1", "snapshot": {**native_snapshot(), "retention": "dll_pinned"}}
     calls = []
     lease = SimpleNamespace(_scope_snapshots={"combat": deepcopy(frozen)},
                             _preparation=NativeBattlePreparation())
@@ -19,9 +19,44 @@ def test_pinned_warmup_requires_live_domains_but_preserves_existing_first_hit():
         calls.append(kwargs)
         return native_snapshot()
     lease._read_battle_snapshot = read
-    observe_pinned_scopes(lease, waiting(), {"combat": {"attemptId": "1"}}, False, None)
+    observe_pinned_scopes(lease, waiting(), {"combat": attempt()}, False, None)
     assert calls == [{"require_current": True}]
     assert lease._scope_snapshots["combat"] == frozen
+
+
+def test_partial_pinned_scope_can_use_same_revision_preparation_but_never_later_configuration():
+    from types import SimpleNamespace
+    from src.services.battle_report.inputs.preparation import observe_pinned_scopes
+    record = waiting()
+    partial = {"state": "observed", "domains": {"team": native_snapshot()["domains"]["team"]},
+               "retention": "dll_pinned"}
+    preparation = NativeBattlePreparation()
+    lease = SimpleNamespace(_scope_snapshots={"combat": {"attempt_id": "1", "snapshot": partial}},
+                            _preparation=preparation, _read_battle_snapshot=lambda *a, **kw: partial)
+    preparation.snapshot = native_snapshot()
+    preparation.snapshot["domains"]["character"]["revision"] = "later"
+    assert observe_pinned_scopes(lease, record, {"combat": attempt()}, True, None) is None
+    preparation.snapshot = native_snapshot()
+    result = observe_pinned_scopes(lease, record, {"combat": attempt()}, True, None)
+    assert result["scopes"]["combat"]["snapshot"]["character_projection"]
+    preparation.snapshot["domains"]["character"]["revision"] = "mutated"
+    assert lease._scope_snapshots["combat"]["snapshot"]["domains"]["character"]["revision"] == "1"
+
+
+def test_later_pinned_reference_is_retried_after_partial_first_response():
+    from types import SimpleNamespace
+    from src.services.battle_report.inputs.preparation import observe_pinned_scopes
+    reads = []
+    def read(*args, **kwargs):
+        reads.append(kwargs["references"])
+        return native_snapshot() if kwargs["references"] else {"state": "observed", "domains": {}}
+    lease = SimpleNamespace(_scope_snapshots={}, _preparation=NativeBattlePreparation(), _read_battle_snapshot=read)
+    evidence = attempt()
+    observe_pinned_scopes(lease, waiting(), {"combat": evidence}, True, None)
+    evidence["configurationSnapshotRefs"] = {"character": {"snapshotId": "late"}}
+    result = observe_pinned_scopes(lease, waiting(), {"combat": evidence}, True, None)
+    assert reads == [{}, {"character": {"snapshotId": "late"}}]
+    assert result["scopes"]["combat"]["snapshot"]["character_projection"]
 
 
 def waiting(revision="1"):

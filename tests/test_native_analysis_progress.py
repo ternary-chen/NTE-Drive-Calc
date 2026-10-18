@@ -26,6 +26,14 @@ def event(phase="load", completed=None, total=None):
 
 
 class ProgressProtocolTests(unittest.TestCase):
+    def test_candidate_search_can_report_completed_count_without_invented_total(self):
+        for count in (0, 1, 1024):
+            value = event("core_candidates", count, None)
+            self.assertEqual(decode_progress(json.dumps(value).encode()), value)
+        for count in (-1, True, 1.0, 2**31):
+            with self.assertRaises(NativeStreamError):
+                decode_progress(json.dumps(event("core_candidates", count, None)).encode())
+
     def test_only_fixed_phases_and_exact_nullable_or_integer_counts(self):
         for phase in PROGRESS_PHASES:
             for counts in ((None, None), (0, 0), (1, 2), (2, 2), (2**31 - 1, 2**31 - 1)):
@@ -241,7 +249,7 @@ class ProgressTransportTests(unittest.TestCase):
             self.assert_clean()
 
     def test_common_nonzero_error_semantics_and_fixed_stderr_discard(self):
-        response = {"schema_version": "nte-analysis-response-v1", "engine_version": "0.3.0",
+        response = {"schema_version": "nte-analysis-response-v1", "engine_version": self.client.engine_version,
                     "error": {"code": "projection_plan_too_large"}}
         source = ("import sys,json;sys.stdin.buffer.read();"
                   f"print(json.dumps({response!r}));"
@@ -283,7 +291,7 @@ class ProgressTransportTests(unittest.TestCase):
 
     def test_legacy_and_no_callback_use_unchanged_nonstream_run(self):
         request = {"account_id": "fixture", "generation": 8, "battle_record_id": 7}
-        response = {"schema_version": "nte-analysis-response-v1", "engine_version": "0.3.0",
+        response = {"schema_version": "nte-analysis-response-v1", "engine_version": self.client.engine_version,
                     "batch_kind": "battle_page_v1", "dataset_version": "fixture", **request,
                     "compute_elapsed_ns": 0, "result": {"ok": True}}
         encoded = json.dumps(response).encode()
@@ -297,7 +305,7 @@ class ProgressTransportTests(unittest.TestCase):
             self.assertEqual(plain.call_count, int(not capable or callback is None))
 
     def test_version_rejects_missing_advertised_progress_capability(self):
-        identity = {"engine": "nte-analysis-core", "engine_version": "0.3.0",
+        identity = {"engine": "nte-analysis-core", "engine_version": self.client.engine_version,
                     "capabilities": ["battle_page_v1"]}
         with patch.object(self.client, "_run", return_value=json.dumps(identity).encode()):
             with self.assertRaisesRegex(NativeAnalysisError, "进度能力"):

@@ -54,6 +54,11 @@ def decode_progress(line: bytes) -> dict[str, Any] | None:
             or value["phase"] not in PROGRESS_PHASES):
         raise NativeStreamError("独立分析核心进度协议无效")
     completed, total = value["completed"], value["total"]
+    # 搜索总量会随改进轮次变化；允许报告已完成数，但不拿预算伪造总量。
+    if value["phase"] == "core_candidates" and total is None and type(completed) is int:
+        if not 0 <= completed <= MAX_PROGRESS_COUNT:
+            raise NativeStreamError("独立分析核心进度计数无效")
+        return value
     if not (completed is None and total is None):
         if (type(completed) is not int or type(total) is not int
                 or not 0 <= completed <= total <= MAX_PROGRESS_COUNT):

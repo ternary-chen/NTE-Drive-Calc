@@ -32,6 +32,10 @@ class AxisAllocationSelection:
     fixed_team_proof_json: str | None = None
     fixed_team_members_json: str | None = None
     team_inventory_snapshot_id: int | None = None
+    rank_baseline: bool = False
+    damage_priority_groups: tuple[tuple[int, ...], ...] = ()
+    damage_priority_reason: str | None = None
+    search_mode: str = "fast"
 
 
 @dataclass(frozen=True, slots=True)

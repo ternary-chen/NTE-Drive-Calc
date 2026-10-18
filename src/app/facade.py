@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from copy import deepcopy
 
 from src.app.constants import APP_VERSION
 from src.integrations.nte_core import NteCoreClient
 from src.integrations.bundled_resources import bundled_config_dir
 from src.integrations.static_catalog_release import static_catalog_read_unit, StaticCatalogReleaseReader
 from src.services.allocation.plan_save import require_allocation_release
+from src.services.allocation.baseline_fallback import attach_baseline_fallbacks
 from src.integrations.native_allocation import create_allocation_executor
 from src.integrations.nte_analysis_core import NativeAnalysisCancelled
 from src.integrations.damage_allocation_job import DeferredDamageBlueprints, execute_damage_job
@@ -97,6 +99,15 @@ class NTEAppFacade:
         postprocess_budget=None,
     ):
         """使用已经固定的数据集合计算，不要求生成中间库存文件。"""
+        from src.services.allocation.team_axis_selection import TeamAxisSelection
+        if isinstance(axis_selection, TeamAxisSelection):
+            from src.services.allocation.team_enhancement import execute_team_enhancement
+            return execute_team_enhancement(self, inventory, priority_list, axis_selection, mode=mode, options=dict(
+                custom_sets=custom_sets, tape_main_filters=tape_main_filters, crit_priority_modes=crit_priority_modes,
+                set_effect_modes=set_effect_modes, priority_groups=priority_groups, crit_rate_caps=crit_rate_caps,
+                crit_rate_baselines=crit_rate_baselines, custom_weapons=custom_weapons, locked_uids=locked_uids,
+                blueprint_combo_limit=blueprint_combo_limit, cancel_check=cancel_check,
+                allocation_observer=allocation_observer, static_read_unit=static_read_unit, postprocess_budget=postprocess_budget))
         postprocess_options = {} if postprocess_budget is None else {
             "max_evaluations": postprocess_budget["max_evaluations"], "max_rounds": postprocess_budget["max_rounds"]}
         direct = mode == "direct_priority"
@@ -113,14 +124,34 @@ class NTEAppFacade:
                 static_database_path=unit.release.database_path, cancelled=cancel_check,
             ) if direct or axis else None
             if axis:
+                from src.services.allocation.search_settings import search_budget
+                selected_axes = axis_selection if isinstance(axis_selection, tuple) else ((axis_selection, ()),)
+                modes = {selected.search_mode for selected, _ in selected_axes}
+                if len(modes) != 1:
+                    raise ValueError("双队搜索档位不一致，请重新配置战报增强")
+                budget = search_budget(modes.pop())
+                if budget["max_millis"] > 120_000 and not analysis_client.supports_axis_deep_search:
+                    raise ValueError("深搜需要新版分析组件，请先更新组件；可选择快搜继续")
+                analysis_client.timeout = (budget["max_millis"] + 1_000) / 1_000
                 def axis_checkpoint():
                     if cancel_check is not None and cancel_check():
                         from concurrent.futures import CancelledError
                         raise CancelledError("轴伤队伍预检已取消")
-                axis_selection = prepare_axis_team_selection(analysis_client, axis_selection, priority_list,
-                    user_database_path=self.user_database_path, static_read_unit=unit,
+                preflight = dict(user_database_path=self.user_database_path, static_read_unit=unit,
                     semantics_path=self.battle_semantics_path, source_inventory=inventory, checkpoint=axis_checkpoint)
-                locked_uids = set(locked_uids or ()) | set(axis_selection.fixed_team_reserved_uids)
+                if isinstance(axis_selection, tuple):
+                    axis_selection = tuple((prepare_axis_team_selection(analysis_client, selected, roles, **preflight), roles)
+                                           for selected, roles in axis_selection)
+                    fixed = {uid for selected, _ in axis_selection for uid in selected.fixed_team_reserved_uids}
+                else:
+                    axis_selection = prepare_axis_team_selection(analysis_client, axis_selection, priority_list, **preflight)
+                    fixed = set(axis_selection.fixed_team_reserved_uids)
+                locked_uids = set(locked_uids or ()) | fixed
+                selections = axis_selection if isinstance(axis_selection, tuple) else ((axis_selection, tuple(priority_list)),)
+                if any(selected.rank_baseline for selected, _ in selections):
+                    from src.services.allocation.team_enhancement import ranked_team_baseline
+                    priority_list, priority_groups, ranked = ranked_team_baseline(selections, priority_list)
+                    axis_selection = ranked if isinstance(axis_selection, tuple) else ranked[0][0]
             native_allocation_executor = create_allocation_executor(
                 static_database_path=unit.release.database_path,
                 cancel_check=cancel_check, analysis_client=analysis_client,
@@ -136,7 +167,9 @@ class NTEAppFacade:
                     request, user_database_path=self.user_database_path, static_read_unit=unit,
                     source_inventory=inventory, reserved_uids=locked_uids, checkpoint=checkpoint,
                 ) if direct else None
-                axis_inputs = freeze_axis_allocation_inputs(analysis_client, request, axis_selection,
+                from src.services.allocation.team_enhancement import freeze_joint_axes
+                freeze_axis = freeze_joint_axes if isinstance(axis_selection, tuple) else freeze_axis_allocation_inputs
+                axis_inputs = freeze_axis(analysis_client, request, axis_selection,
                     user_database_path=self.user_database_path, static_read_unit=unit,
                     source_inventory=inventory, semantics_path=self.battle_semantics_path,
                     reserved_uids=locked_uids, checkpoint=checkpoint) if axis else None
@@ -156,12 +189,17 @@ class NTEAppFacade:
                     plans = native_allocation_executor(request, scorer)
                 if allocation_observer is not None:
                     allocation_observer(request, scorer)
+                baseline_plans = deepcopy(plans) if direct or axis else None
                 if direct:
                     plans = optimize_standard_direct_groups(analysis_client, request, scorer, plans, frozen,
                                                       checkpoint=checkpoint, native_job=native_job)
                 if axis:
                     plans = optimize_frozen_axis(analysis_client, request, scorer, plans, axis_inputs,
                                                  checkpoint=checkpoint, native_job=native_job)
+                if direct or axis:
+                    plans = attach_baseline_fallbacks(plans, baseline_plans, axis_inputs if axis else frozen,
+                        dataset_id=unit.release.dataset_id, input_identity=native_job.inner["input_identity"],
+                        database_path=self.user_database_path, job_facts=native_job.facts)
                 return explain_allocation_failures(plans, request, scorer.stat_catalog)
 
             orchestrator = NTEPipelineOrchestrator(

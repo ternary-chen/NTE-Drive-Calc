@@ -83,6 +83,8 @@ nte_capture*.json
 /config/plugins.json
 /config/component_upgrade_pending
 /config/performance.json
+/config/quick_wheel.json
+/maintenance/data-recovery/
 
 # Private component source trees and sensitive development artifacts
 /analysis-core/

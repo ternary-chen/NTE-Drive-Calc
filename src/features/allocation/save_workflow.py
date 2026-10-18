@@ -23,6 +23,7 @@ from src.features.allocation.save_progress import AllocationSaveProgress
 from src.services.allocation.slot_comparisons import selected_legacy_comparison_diffs
 from src.features.inventory.equipment.display_controller import invalidate_saved_equipment_cache
 from src.services.allocation.direct_postprocess import optimization_payload
+from src.services.allocation.baseline_fallback import baseline_save_available
 from src.services.allocation.postprocess_facts import allocation_role_state_from_plan
 from src.services.allocation.locks import AllocationLockSnapshot
 from src.services.allocation.plan_save import legacy_plan_tape_main_values, save_allocation_plans
@@ -135,14 +136,15 @@ def save_allocation(owner, *, show_message=True):
         if not isinstance(lock_snapshot, AllocationLockSnapshot) or lock_snapshot.inventory_snapshot_id != snapshot_id:
             raise RuntimeError("本次计算缺少一致的配装锁定快照，请重新执行计算。")
         eligible = {role: plan for role, plan in owner.final_plan.items() if isinstance(plan, dict) and plan.get("valid")
-            and (not plan.get("damage_optimization") or plan["damage_optimization"].get("status") == "completed")}
+            and (not plan.get("damage_optimization") or plan["damage_optimization"].get("status") == "completed"
+                 or baseline_save_available(plan))}
         skipped = [role for role, plan in owner.final_plan.items() if isinstance(plan, dict) and plan.get("damage_optimization") and role not in eligible]
         if not eligible:
-            raise RuntimeError("本次暂无可保存的优化方案。如需保存基础方案，请切回角色优先重新计算。")
+            raise RuntimeError("本次没有可保存的合法配装，请检查库存、筛选条件或冻结来源。")
         if skipped:
             choice = QMessageBox.warning(owner.dialog_parent, "部分方案可保存",
                 "本次保存：" + "、".join(eligible) + "\n保持原方案、不覆盖：" + "、".join(skipped)
-                + "\n其余角色尚未完成优化。如需保存它们的基础方案，请切回角色优先重新计算。\n继续保存上述可用方案？",
+                + "\n其余角色缺少可保存的合法配装；基础方案按基础结果保存，不表示伤害优化完成。\n继续保存上述可用方案？",
                 QMessageBox.Ok | QMessageBox.Cancel, QMessageBox.Cancel)
             if choice != QMessageBox.Ok:
                 return False
@@ -172,6 +174,7 @@ def save_allocation(owner, *, show_message=True):
                     role_name=role, role_state=allocation_role_state_from_plan(plan), character_id=character_id,
                     snapshot_id=snapshot_id, name=f"计算方案：{role}", score=float(plan.get("score", 0.0) or 0.0),
                     slot_id=slot_id, axis_preview_source=plan.get("axis_preview_source"),
+                    baseline_preview_source=plan.get("baseline_preview_source"),
                     direct_group_preview_source=plan.get("direct_group_preview_source"), payload={
                         "schema": "allocation-official-snapshot-v1", "source": "allocation",
                         "source_role_name": role, "static_dataset_id": identity[1],

@@ -1,4 +1,5 @@
 # 验证插件偏好、风险模式和共享原生会话的独立生命周期。
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -102,13 +103,13 @@ def test_plugin_apply_status_only_changes_the_affected_card(tmp_path):
 
 def test_low_mode_disables_live_hud_and_persists_switches_without_losing_options(tmp_path):
     service, _, core, policy = make_service(tmp_path)
-    service.update(cooldown=True, enemy_bars=True, ready_cue=False, hp=False)
+    service.update(cooldown=True, enemy_bars=True, hp=False)
     service.observe(SimpleNamespace(game_running=True))
     assert core.calls[-1][1]["cooldown"]
     policy.enabled = False
     service.observe(SimpleNamespace(game_running=True))
     assert not core.calls[-1][1]["cooldown"]
-    assert service.settings == PluginSettings(ready_cue=False, hp=False)
+    assert service.settings == PluginSettings(hp=False)
     assert service.store.load() == service.settings
     with pytest.raises(PermissionError):
         service.update(enemy_bars=True)
@@ -238,6 +239,8 @@ def test_plugin_page_uses_inline_options_and_clear_status_labels(tmp_path, monke
     assert {"技能冷却", "敌人状态", "等待启动游戏"} <= labels
     assert {"刷新状态", "检测详情"} <= buttons
     assert "设置" not in buttons
+    from PySide6.QtWidgets import QCheckBox
+    assert not any("就绪" in box.text() for box in page.findChildren(QCheckBox))
     page.option_boxes["enemy_bars"]["hp"].click()
     assert not service.settings.hp and applied
     assert page.cards["cooldown"][1].text() == "等待启动游戏"
@@ -294,6 +297,7 @@ def test_plugin_detection_uses_settings_explicit_check_and_processing_entry(tmp_
     owner = QWidget()
     service, _, _, policy = make_service(tmp_path)
     owner.plugin_service = service
+    owner.quick_wheel_controller = None
     owner.work_mode_controller = SimpleNamespace(
         check=Mock(), refresh_plugins=Mock(),
         observed=SimpleNamespace(connect=Mock()), plugins_applied=SimpleNamespace(connect=Mock()),
@@ -310,3 +314,22 @@ def test_plugin_detection_uses_settings_explicit_check_and_processing_entry(tmp_
     owner.close()
     owner.deleteLater()
     app.processEvents()
+
+
+def test_legacy_disabled_glow_does_not_override_skill_display_switch(tmp_path):
+    path = tmp_path / 'plugins.json'
+    path.write_text(json.dumps({'cooldown': True, 'enemy_bars': False,
+                                'ready_cue': False, 'hp': False, 'unbalance': True}), encoding='utf-8')
+    service, session, core, _ = make_service(tmp_path)
+    try:
+        service.observe(SimpleNamespace(game_running=True))
+        assert core.calls[-1][1]['cooldown'] is True
+        assert core.calls[-1][1]['ready_cue'] is True
+        assert not service.settings.hp
+        service.update(cooldown=False)
+        service.apply_current()
+        assert core.calls[-1][1]['cooldown'] is False
+        assert core.calls[-1][1]['ready_cue'] is False
+        assert 'ready_cue' not in json.loads(path.read_text(encoding='utf-8'))
+    finally:
+        session.close()

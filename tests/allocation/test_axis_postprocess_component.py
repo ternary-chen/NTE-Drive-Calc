@@ -29,8 +29,8 @@ from src.storage.sqlite.user_data_dao import UserDataDao
 NTE_TEST_TIER = "core"
 
 
-def axis_facade_case(directory, *, conditional=False, joint=False, second=False, game_locked=False):
-    case = create_axis_catalog_case(directory, core_suit_id=None if conditional else "Suit1", second_character=second)
+def axis_facade_case(directory, *, conditional=False, joint=False, second=False, game_locked=False, unknown_event=False):
+    case = create_axis_catalog_case(directory, core_suit_id=None if conditional else "Suit1", second_character=second, unknown_event=unknown_event)
     attach_native_team(case)
     # 正常图纸生成会最大化角色额外形状，模板仅七件不足；补齐真实目录形状的临时完整库存，A仍原冻结。
     with static_catalog_read_unit(case["dependencies"].static_database_path) as unit, UserDataDao(case["dependencies"].user_database_path) as dao:
@@ -122,8 +122,9 @@ def test_game_discard_lock_does_not_protect_allocation_equipment(tmp_path, mode,
         assert actual and all(item["locked"] for item in actual)
 
 
-def test_actual_axis_facade_keeps_base_score_and_saves_distinct_frozen_objective(tmp_path):
-    case = axis_facade_case(tmp_path)
+@pytest.mark.parametrize("unknown_event", [False, True])
+def test_actual_axis_facade_keeps_base_score_and_saves_distinct_frozen_objective(tmp_path, unknown_event):
+    case = axis_facade_case(tmp_path, unknown_event=unknown_event)
     expected_reserved = {uid for cid, uids in case["fixed_equipment_by_character"].items() if cid != 1072 for uid in uids}
     def observe(request, scorer):
         assert not expected_reserved & {item.uid for item in request.inventory}
@@ -142,6 +143,10 @@ def test_actual_axis_facade_keeps_base_score_and_saves_distinct_frozen_objective
     assert {uid for m in result["fixed_team_members"] for uid in m["equipment_uids"]} == expected_reserved
     assert len(result["fixed_team_build_sha256"]) == 64
     assert result["candidate_value"] > result["baseline_value"]
+    if unknown_event:
+        assert result["coverage"]["policy"] == "available_fixed_domain_v1"
+        assert 0 < result["coverage"]["coverage_ratio"] < 1
+        assert result["coverage"]["excluded_damage"] > 0
     assert result["model_id"] == "frozen_axis_expected_v1" and result["equipment_value_mode"] == "actual_level"
     assert plan["score"] == pytest.approx(sum(item.role_scores["灵可"] for item in [plan["assigned_tape"], *plan["assigned_extra_drives"]]))
     assert result["source_snapshot_id"] == case["source_snapshot_id"]
@@ -238,10 +243,26 @@ def test_nonparticipant_unlocked_old_slot_does_not_block_axis_optimization(tmp_p
         assert dao.list_loadout_slots(1003)[0]["current_plan"]["assignments"][0]["uid_serial"] == borrowed_serial
 
 
-def test_first_axis_group_scan_cut_keeps_b0_and_is_not_saveable_optimization(tmp_path):
+def test_first_axis_group_scan_cut_saves_b0_without_claiming_axis_improvement(tmp_path):
     case = axis_facade_case(tmp_path, joint=True)
     plans, _ = run_axis_facade(case, budget={"max_evaluations": 1, "max_rounds": 100})
     value = plans["灵可"]["damage_optimization"]
-    assert value["status"] == "budget_limited" and value["termination"] == "evaluation_budget"
-    assert value["candidate_value"] == value["baseline_value"] and not value["neighborhood_complete"]
+    assert value["status"] == "baseline_only" and value["fallback_status"] == "budget_limited"
+    assert "candidate_value" not in value and not value["neighborhood_complete"]
     assert "axis_preview_source" not in plans["灵可"]
+    plan = plans["灵可"]
+    with UserDataDao(case["dependencies"].user_database_path) as dao:
+        locks = build_allocation_lock_snapshot(dao, inventory_snapshot_id=case["source_snapshot_id"])
+    with static_catalog_read_unit(case["dependencies"].static_database_path) as unit:
+        release = unit.release
+    row = dict(role_name="灵可", character_id=1072, snapshot_id=case["source_snapshot_id"], slot_id=None,
+        name="公开轴伤降级基础方案", score=plan["score"], role_state=allocation_role_state_from_plan(plan),
+        baseline_preview_source=plan["baseline_preview_source"], payload={"source_role_name": "灵可",
+            "assignment_scores": {item.uid: item.role_scores["灵可"] for item in [plan["assigned_tape"], *plan["assigned_extra_drives"]]},
+            "tape_main_values": legacy_plan_tape_main_values(plan), **optimization_payload(plan)})
+    assert save_allocation_plans(database_path=case["dependencies"].user_database_path, static_database_path=release.database_path,
+        static_identity=(release.database_path, release.dataset_id), static_release=release, lock_snapshot=locks,
+        rows=[row], checkpoint=lambda: None, progress=lambda _: None) == 1
+    with UserDataDao(case["dependencies"].user_database_path) as dao:
+        saved = dao.list_loadout_slots(1072)[0]["current_plan"]
+    assert saved["payload"]["damage_optimization"] == value

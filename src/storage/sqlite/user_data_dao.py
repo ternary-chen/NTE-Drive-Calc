@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from .equipment.loadout_management_dao import LoadoutManagementDaoMixin
+from .teams_dao import TeamsDaoMixin
 
 from src.storage.sqlite.accounts.account_data_dao import AccountDataDaoMixin
 from src.storage.sqlite.inventory.all_item_snapshot_dao import AllItemSnapshotDaoMixin
@@ -45,6 +46,7 @@ from src.storage.sqlite.user_data_support import (
 
 
 class UserDataDao(
+    TeamsDaoMixin,
     LoadoutManagementDaoMixin,
     PracticeShareDaoMixin,
     CultivationHistoryDaoMixin,

@@ -103,5 +103,9 @@ class BattleAnalysisSnapshot:
     damage_overlap_correction_total: float = 0.0
     timeline_damage_overlap_correction_total: float = 0.0
     raw_total_damage: float = 0.0
+    # 原生重开事件证明的作废范围；时间仍采用原轴微秒坐标，原始战报保留。
+    discarded_attempt_intervals: tuple[tuple[int, int], ...] = ()
+    discarded_attempt_damage: float = 0.0
+    discarded_attempt_hit_count: int = 0
     build_counterfactual: battle_counterfactual.BattleBuildCounterfactual | None = None
     inferred_character_facts: tuple[BattleInferredCharacterFact, ...] = ()

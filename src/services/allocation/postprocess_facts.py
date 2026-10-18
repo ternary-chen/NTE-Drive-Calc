@@ -211,7 +211,7 @@ def verify_optimization_batch_rows(rows, *, shared_axis=False):
     if not isinstance(identity, Mapping) or any(value.get("input_identity") != identity for value in metadata):
         raise RuntimeError("优化组成员来自不同预览作业，请保存同一次完整预览。")
     if shared_axis:
-        shared = {key: metadata[0].get(key) for key in ("source_input_digest", "fixed_team_build_sha256", "fixed_team_members", "frozen_identity", "scope", "baseline_value", "candidate_value", "delta", "shared_value", "groups", "exchange_links", "shared_build_dependencies", "shared_build_dependencies_sha256")}
+        shared = {key: metadata[0].get(key) for key in ("coverage", "team_reports", "baseline_priority", "source_input_digest", "fixed_team_build_sha256", "fixed_team_members", "frozen_identity", "scope", "baseline_value", "candidate_value", "delta", "shared_value", "groups", "exchange_links", "shared_build_dependencies", "shared_build_dependencies_sha256")}
         if any(any(value.get(key) != expected for key, expected in shared.items()) for value in metadata):
             raise RuntimeError("同轴全队目标与冻结预览组合不一致，请重新计算。")
     groups = {}

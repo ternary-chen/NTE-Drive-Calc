@@ -112,7 +112,7 @@ _SYNC_ERROR_GUIDANCE = {
     ),
 }
 
-_WORKBENCH_VERSION = ".".join(APP_VERSION.split(".")[:2])
+_WORKBENCH_VERSION = ".".join(APP_VERSION.split(".")[:3])
 
 
 def inventory_sync_error_guidance(error_code: str | None, error: str | None, *, capture_source: str) -> str:

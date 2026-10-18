@@ -5,13 +5,14 @@ from concurrent.futures import CancelledError
 from dataclasses import replace
 from unittest.mock import patch
 
-from PySide6.QtCore import QCoreApplication, QEvent, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialogButtonBox, QLabel, QWidget
+from PySide6.QtWidgets import QDialogButtonBox
 import pytest
 
 from tests.battle_report.analysis.axis_evaluation_catalog_fixture import create_axis_catalog_case
-from src.features.allocation.axis_selection_dialog import AxisAllocationSelectionDialog
+from src.features.allocation.team_axis_dialog import TeamAxisDialog
+from src.domain.teams import TeamDraft
 from src.services.allocation.axis_selection import AxisAllocationSelectionService
 from src.storage.sqlite.user_data_dao import UserDataDao
 
@@ -68,94 +69,57 @@ def test_group_scope_is_explicit_and_does_not_silently_pick_first_role(selection
     assert selected.battle.selected_character_id is None
 
 
-def test_selection_dialog_empty_defaults_reject_incomplete_choices_and_can_freeze_explicit_input(selection_service):
+def make_team_dialog(selection_service, **kwargs):
     case, service, choices, _ = selection_service
-    app = QApplication.instance() or QApplication([])
-    parent = QWidget()
-    dialog = AxisAllocationSelectionDialog(service=service, choices=choices, parent=parent)
-    try:
-        assert dialog.report_combo.currentData() is None
-        dialog.buttons.button(QDialogButtonBox.Ok).click()
-        assert dialog.selection is None and dialog.result() == 0
-        dialog.report_combo.setCurrentIndex(dialog.report_combo.findData(case["battle_record_id"]))
-        assert dialog.role_combo.currentData() is None and dialog.anchor_combo.currentData() is None
-        dialog.role_combo.setCurrentIndex(dialog.role_combo.findData("__all_groups__"))
-        dialog.scope_combo.setCurrentIndex(dialog.scope_combo.findData("all"))
-        dialog.anchor_combo.setCurrentIndex(dialog.anchor_combo.findData("original"))
-        dialog.buttons.button(QDialogButtonBox.Ok).click()
-        assert dialog.selection is not None and dialog.selection.anchor_mode == "original"
-    finally:
-        dialog.close()
-        parent.close()
-        dialog.deleteLater()
-        parent.deleteLater()
-        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-        app.processEvents()
+    with UserDataDao(case["dependencies"].user_database_path) as dao:
+        team = dao.save_team(TeamDraft("公开四人队", (1072, 1003, 1004, 1008)))
+    choices = replace(choices, role_character_ids=(("灵可", 1072), ("队友甲", 1003), ("队友乙", 1004), ("队友丙", 1008)))
+    return TeamAxisDialog(service=service, teams=(team,), choices=choices, **kwargs)
 
 
-def test_marginal_entry_prefills_only_its_explicit_selector_and_keeps_a_unselected(selection_service):
+def test_team_dialog_requires_report_and_preserves_explicit_range(selection_service):
+    from auto_sync_ui_fixture import application, dispose
+    application()
     case, service, choices, _ = selection_service
     selected = service.select(choices, battle_record_id=case["battle_record_id"], selected_role="灵可", detail_scope="range",
                               anchor_mode="original", start_us=500_000, end_us=1_000_001)
-    app = QApplication.instance() or QApplication([])
-    parent = QWidget()
-    dialog = AxisAllocationSelectionDialog(service=service, choices=choices,
-        initial_request=replace(selected.battle, marginal_drive_units=(("AtkUp", 100.0),)), parent=parent)
+    dialog = make_team_dialog(selection_service, initial_request=replace(selected.battle, marginal_drive_units=(("AtkUp", 100.0),)))
     try:
-        assert dialog.report_combo.currentData() == case["battle_record_id"]
-        assert dialog.role_combo.currentData() == "__all_groups__" and dialog.scope_combo.currentData() == "range"
-        assert dialog.anchor_combo.currentData() is None and dialog.selection is None
+        row = dialog._rows[0]
+        assert row["report"].currentData() == case["battle_record_id"]
+        assert row["scope"].currentData() == "range"
         dialog.buttons.button(QDialogButtonBox.Ok).click()
-        assert dialog.selection is None
-        dialog.role_combo.setCurrentIndex(dialog.role_combo.findData("__all_groups__"))
-        dialog.anchor_combo.setCurrentIndex(dialog.anchor_combo.findData("original"))
+        assert dialog.selection is None  # 来自战报的快捷入口不替用户选队伍。
+        row["check"].click()
         dialog.buttons.button(QDialogButtonBox.Ok).click()
-        assert dialog.selection.optimize_groups and dialog.selection.selected_character_id is None
-        assert dialog.selection.battle.marginal_drive_units is None
-        assert (dialog.selection.battle.start_us, dialog.selection.battle.end_us) == (500_000, 1_000_001)
+        axis = dialog.selection.teams[0].axis
+        assert axis.optimize_groups and axis.battle.marginal_drive_units is None
+        assert (axis.battle.start_us, axis.battle.end_us) == (500_000, 1_000_001)
     finally:
-        dialog.close()
-        parent.close()
-        dialog.deleteLater()
-        parent.deleteLater()
-        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-        app.processEvents()
+        dispose(dialog)
 
 
-def test_range_row_visibility_and_keyboard_cancel_never_selects_report(selection_service):
-    case, service, choices, _ = selection_service
-    app = QApplication.instance() or QApplication([])
-    parent = QWidget()
-    dialog = AxisAllocationSelectionDialog(service=service, choices=choices, parent=parent)
+def test_team_dialog_range_keyboard_cancel_has_no_selection_write(selection_service):
+    from auto_sync_ui_fixture import application, dispose
+    app = application()
+    case, service, _, _ = selection_service
+    dialog = make_team_dialog(selection_service)
     try:
         dialog.show()
-        dialog.activateWindow()
-        app.processEvents()
-        label = next(item for item in dialog.findChildren(QLabel) if item.text() == "指定时段")
-        dialog.report_combo.setCurrentIndex(dialog.report_combo.findData(case["battle_record_id"]))
+        row = dialog._rows[0]
+        row["check"].click()
+        assert row["report"].currentData() is None
+        dialog.buttons.button(QDialogButtonBox.Ok).click()
+        assert dialog.selection is None
+        row["report"].setCurrentIndex(row["report"].findData(case["battle_record_id"]))
         for scope in ("all", "range", "all", "range"):
-            dialog.scope_combo.setCurrentIndex(dialog.scope_combo.findData(scope))
+            row["scope"].setCurrentIndex(row["scope"].findData(scope))
             app.processEvents()
-            assert label.isVisible() == (scope == "range")
-            for control in (dialog.start_spin, dialog.end_spin):
-                assert control.isVisible() == (scope == "range")
-                if scope == "range":
-                    assert control.isEnabled() and control.focusPolicy() != Qt.NoFocus
-                    control.setFocus()
-                    app.processEvents()
-                    assert control.hasFocus()
-        cancel = dialog.buttons.button(QDialogButtonBox.Cancel)
-        assert cancel.text() == "取消"
+            assert row["time"].isVisible() == (scope == "range")
+            assert row["time_label"].isVisible() == (scope == "range")
         with patch.object(service, "select", wraps=service.select) as select:
-            cancel.setFocus()
-            QTest.keyClick(cancel, Qt.Key_Space)
-            app.processEvents()
+            QTest.keyClick(dialog.buttons.button(QDialogButtonBox.Cancel), Qt.Key_Space)
             select.assert_not_called()
         assert dialog.selection is None and dialog.result() == 0 and not dialog.isVisible()
     finally:
-        dialog.close()
-        parent.close()
-        dialog.deleteLater()
-        parent.deleteLater()
-        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-        app.processEvents()
+        dispose(dialog)

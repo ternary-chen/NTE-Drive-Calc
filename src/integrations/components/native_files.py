@@ -12,7 +12,7 @@ import tempfile
 from typing import Callable
 
 from src.integrations.native_plugin_bundle import (
-    HOT_PLUGIN_LAYOUT, HOT_PLUGIN_LAYOUTS, NATIVE_PLUGIN_DEPLOYMENT_PATHS, HOT_PLUGIN_DEPLOYMENT_PATHS, PERFORMANCE_DEPLOYMENT_PATHS, HUD_DEPLOYMENT_PATHS, inspect_native_plugin_bundle,
+    HOT_PLUGIN_LAYOUT, HOT_PLUGIN_LAYOUTS, NATIVE_PLUGIN_DEPLOYMENT_PATHS, HOT_PLUGIN_DEPLOYMENT_PATHS, PERFORMANCE_DEPLOYMENT_PATHS, HUD_DEPLOYMENT_PATHS, TRAINING_DEPLOYMENT_PATHS, inspect_native_plugin_bundle,
 )
 from src.integrations.native_host_control import NativeHostClient, NativeHostError, NativeHostOutcomeUnknown
 from src.integrations.operation_guard import require_operation
@@ -67,7 +67,7 @@ def _digest(path: Path) -> str:
 
 
 def _target(directory: Path, relative: str) -> Path:
-    if relative not in {*NATIVE_PLUGIN_DEPLOYMENT_PATHS.values(), *HOT_PLUGIN_DEPLOYMENT_PATHS.values(), *PERFORMANCE_DEPLOYMENT_PATHS.values(), *HUD_DEPLOYMENT_PATHS.values()}:
+    if relative not in {*NATIVE_PLUGIN_DEPLOYMENT_PATHS.values(), *HOT_PLUGIN_DEPLOYMENT_PATHS.values(), *PERFORMANCE_DEPLOYMENT_PATHS.values(), *HUD_DEPLOYMENT_PATHS.values(), *TRAINING_DEPLOYMENT_PATHS.values()}:
         raise EquipmentPluginDeploymentError('组件记录包含正式布局之外的文件。')
     target = directory / relative
     if target.is_symlink() or not target.resolve().is_relative_to(directory):
@@ -318,7 +318,7 @@ def cleanup_manual_native_plugin(
     try:
         for relative in recorded:
             _manual_cleanup_target(directory, relative)
-        for relative in {*NATIVE_PLUGIN_DEPLOYMENT_PATHS.values(), *HOT_PLUGIN_DEPLOYMENT_PATHS.values(), *PERFORMANCE_DEPLOYMENT_PATHS.values(), *HUD_DEPLOYMENT_PATHS.values()}:
+        for relative in {*NATIVE_PLUGIN_DEPLOYMENT_PATHS.values(), *HOT_PLUGIN_DEPLOYMENT_PATHS.values(), *PERFORMANCE_DEPLOYMENT_PATHS.values(), *HUD_DEPLOYMENT_PATHS.values(), *TRAINING_DEPLOYMENT_PATHS.values()}:
             target = _manual_cleanup_target(directory, relative)
             if not target.exists():
                 continue
@@ -370,7 +370,7 @@ def update_native_plugins(*, application_root: Path, directory: Path, game_pid: 
     if not bundle.ready or bundle.layout not in HOT_PLUGIN_LAYOUTS:
         raise NativeHostError('当前整包不支持插件热更新。')
     paths = bundle.deployment_paths
-    plugins = (USER, COMBAT) + (('NTE_PluginHUD.dll',) if 'hud_plugin' in paths else ()) + (('NTE_PluginPerformance.dll',) if 'performance_plugin' in paths else ())
+    plugins = (USER, COMBAT) + (('NTE_PluginHUD.dll',) if 'hud_plugin' in paths else ()) + (('NTE_PluginPerformance.dll',) if 'performance_plugin' in paths else ()) + (('NTE_PluginTraining.dll',) if 'training_plugin' in paths else ())
     host = _target(directory, paths['host'])
     if not host.is_file() or _digest(host) != bundle.files[bundle.roles['host']]:
         return NativePluginUpdateResult('restart_required', 'D3D 宿主需要更新，请退出游戏后成套部署。', {}, bundle.layout)

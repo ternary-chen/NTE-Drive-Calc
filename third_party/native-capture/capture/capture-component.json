@@ -2,55 +2,63 @@
   "schemaVersion": 1,
   "component": "calc-plugin-host",
   "layout": "native-plugins-v3",
-  "sourceCommit": "bf7ffc7f06f1766e008c6a974d94c4fd4aa310d9",
+  "sourceCommit": "f2763e4aab676c613dbfe51fb1877aba9d13ec1b",
   "sourceState": "working-tree",
-  "sourceTreeSha256": "0c2f7ead8bdf56fc9c4f2a5893d9e94001164e4b424dd61dd558df6615ef67a5",
+  "sourceTreeSha256": "e32f1f5417559d7ca7ae755ea10fb8a18e4c1958989ba31482538902012a3fc0",
   "pluginPolicy": "calc-publisher-rsa3072-sha256-v1",
   "configuration": "Release",
   "files": {
     "d3d12.dll": {
-      "sha256": "5c267a9adf7dc00c334c4ddf3643c66cffffe301795f17de82bb5e82388347a8",
-      "size": 6816768
+      "sha256": "5b5a86a65b84976485c23400857dd03d032813604d405941ac5722805a6f5e7c",
+      "size": 7671296
     },
     "plugins/NTE_PluginUser.dll": {
-      "sha256": "c5d323b712ad0019c7b74916dae59c041934e46141cdc4678ea4547a2beb7cae",
+      "sha256": "4f2cb71144ec893f2e15144c79ddb31607bd6e869ad8574ac4cdfe91021cf37d",
       "size": 780800
     },
     "plugins/NTE_PluginUser.dll.sig": {
-      "sha256": "eb3b5faf1f36c6c2e934416679db175e6ab0adc5e29d719282c201714a005ccb",
+      "sha256": "95c79f18baffd24faf7e8abe400297c87540bfa0045b998812230af9aa978df9",
       "size": 384
     },
     "plugins/NTE_PluginCombat.dll": {
-      "sha256": "5105f4fa6042f7235aec6757c2f22559ad0690c5f950e8b8a4dddb9cf74155c9",
-      "size": 5317120
+      "sha256": "f56091763b3b173400af9291ff1e3ba96737d082676d299785976406257d4d96",
+      "size": 5322240
     },
     "plugins/NTE_PluginCombat.dll.sig": {
-      "sha256": "cc67a966c29950fa71d8b19a926bc80076676446898abd45eca586f534eab3f9",
+      "sha256": "1533ebc19380487add6f92166eea052777ff448d77c450c68100226e3ae97a68",
       "size": 384
     },
     "plugins/NTE_PluginHUD.dll": {
-      "sha256": "3b44220d87b77e618281aec5124476d65c54ad05a9162a34719d172c9c543b68",
-      "size": 3563520
+      "sha256": "08a7ec0f959150975cdcd545b7f170fff7011ae41bc26221935d2a2542a4dba8",
+      "size": 3546624
     },
     "plugins/NTE_PluginHUD.dll.sig": {
-      "sha256": "ad57533f857fa79d035fef5ed5603f1ad4c1fb1105d2f012a6a6bc8f346429d8",
+      "sha256": "fb2d41534d37c049743f700645fde3bf698a5f3c873c79263ade5323b87e37ca",
       "size": 384
     },
     "plugins/NTE_PluginPerformance.dll": {
-      "sha256": "ecde84ee27434280d4479efaa89b9f2f284b96fb75652048fe0fa217c97d1dfb",
-      "size": 5221888
+      "sha256": "1daa01d785030183e1c1f8cccda638009b65be801b2f7fe0c9ae71433d8f9180",
+      "size": 5451776
     },
     "plugins/NTE_PluginPerformance.dll.sig": {
-      "sha256": "f4b1ace3f494dd1128f0e9c29511a5f1f976c5c04dd5e76b916def0eb458cf0e",
+      "sha256": "ca2fc42d08be79316cfe917c30ed4f333788618bd4f187b33b87e04458299197",
+      "size": 384
+    },
+    "plugins/NTE_PluginTraining.dll": {
+      "sha256": "a9c8b3d03886ecd1fd66904e526fa5283c39a89124c399f1934c4ad97fdb0694",
+      "size": 420352
+    },
+    "plugins/NTE_PluginTraining.dll.sig": {
+      "sha256": "b65f176895c4fb00da925f1c657bc3a88a5bb3bc188928edb9ba98f8aa844495",
       "size": 384
     }
   },
   "protection": {
     "tool": "VMProtect",
-    "policy_sha256": "2321e5f8ab0c92c15f0dd6ce9c2651ad10f885efdf61e2e4f09214b67aff0f35",
+    "policy_sha256": "ee10451eee34d2471e59b8c870d0ff1a7264fcd9aa26f7d3a8a6bf0aeda7ba3a",
     "binaries": {
       "d3d12.dll": {
-        "sha256": "5c267a9adf7dc00c334c4ddf3643c66cffffe301795f17de82bb5e82388347a8",
+        "sha256": "5b5a86a65b84976485c23400857dd03d032813604d405941ac5722805a6f5e7c",
         "functions": 10,
         "profile": {
           "name": "selected-functions-v1",
@@ -73,7 +81,7 @@
         }
       },
       "NTE_PluginUser.dll": {
-        "sha256": "c5d323b712ad0019c7b74916dae59c041934e46141cdc4678ea4547a2beb7cae",
+        "sha256": "4f2cb71144ec893f2e15144c79ddb31607bd6e869ad8574ac4cdfe91021cf37d",
         "functions": 1,
         "profile": {
           "name": "selected-functions-v1",
@@ -96,7 +104,7 @@
         }
       },
       "NTE_PluginCombat.dll": {
-        "sha256": "5105f4fa6042f7235aec6757c2f22559ad0690c5f950e8b8a4dddb9cf74155c9",
+        "sha256": "f56091763b3b173400af9291ff1e3ba96737d082676d299785976406257d4d96",
         "functions": 6,
         "profile": {
           "name": "selected-functions-v1",
@@ -119,7 +127,7 @@
         }
       },
       "NTE_PluginHUD.dll": {
-        "sha256": "3b44220d87b77e618281aec5124476d65c54ad05a9162a34719d172c9c543b68",
+        "sha256": "08a7ec0f959150975cdcd545b7f170fff7011ae41bc26221935d2a2542a4dba8",
         "functions": 1,
         "profile": {
           "name": "selected-functions-v1",
@@ -142,7 +150,7 @@
         }
       },
       "NTE_PluginPerformance.dll": {
-        "sha256": "ecde84ee27434280d4479efaa89b9f2f284b96fb75652048fe0fa217c97d1dfb",
+        "sha256": "1daa01d785030183e1c1f8cccda638009b65be801b2f7fe0c9ae71433d8f9180",
         "functions": 1,
         "profile": {
           "name": "selected-functions-v1",
@@ -154,6 +162,29 @@
           "schema": "nte.component-notice/1",
           "component": "NTE_PluginPerformance",
           "build_target": "nte_plugin_performance",
+          "project": "UETools-NTE",
+          "declaration_version": 1,
+          "purpose": "\u672c\u7ec4\u4ef6\u7528\u4e8e\u88c5\u5907\u8ba1\u7b97\u3001\u6e38\u620f\u7406\u89e3\u548c\u7ecf\u6388\u6743\u7684\u8bca\u65ad\u4e0e\u6570\u636e\u91c7\u96c6\u3002",
+          "authorization": "\u4f7f\u7528\u3001\u4fee\u6539\u3001\u5206\u6790\u548c\u5206\u53d1\u5e94\u9075\u5b88\u9002\u7528\u6cd5\u5f8b\u3001\u7ec4\u4ef6\u8bb8\u53ef\u8bc1\u53ca\u6709\u6548\u6388\u6743\uff1b\u79c1\u6709\u6750\u6599\u8bbf\u95ee\u4ec5\u9650\u88ab\u660e\u786e\u6388\u6743\u7684\u8303\u56f4\u3002",
+          "prohibited_use": "\u672c\u65b9\u4e0d\u6388\u6743\u5c06\u672c\u7ec4\u4ef6\u7528\u4e8e\u5916\u6302\u3001\u7834\u574f\u6e38\u620f\u516c\u5e73\u6027\u3001\u7ed5\u8fc7\u672a\u83b7\u6388\u6743\u7684\u9650\u5236\uff0c\u6216\u4fb5\u5bb3\u6e38\u620f\u8fd0\u8425\u65b9\u3001\u73a9\u5bb6\u53ca\u5176\u4ed6\u76f8\u5173\u6743\u5229\u4eba\u7684\u5408\u6cd5\u6743\u76ca\u3002",
+          "license_boundary": "\u672c\u58f0\u660e\u8bf4\u660e\u672c\u65b9\u7528\u9014\u53ca\u6388\u6743\u8fb9\u754c\uff0c\u4e0d\u66ff\u6362\u7b2c\u4e09\u65b9\u8bb8\u53ef\u8bc1\uff0c\u4e0d\u64a4\u9500\u5df2\u7ecf\u5408\u6cd5\u6388\u4e88\u7684\u6743\u5229\uff1b\u5177\u4f53\u6743\u9650\u4ee5\u9002\u7528\u8bb8\u53ef\u8bc1\u53ca\u6709\u6548\u6388\u6743\u4e3a\u51c6\u3002",
+          "identity_binding": "\u7ec4\u4ef6\u6587\u4ef6\u54c8\u5e0c\u3001\u6e90\u7801\u63d0\u4ea4\u3001\u6784\u5efa\u8f93\u5165\u53ca\u4fdd\u62a4\u56de\u6267\u4ee5\u968f\u9644\u7ec4\u4ef6\u6e05\u5355\u4e3a\u51c6\u3002",
+          "data_kind": "authorization_notice"
+        }
+      },
+      "NTE_PluginTraining.dll": {
+        "sha256": "a9c8b3d03886ecd1fd66904e526fa5283c39a89124c399f1934c4ad97fdb0694",
+        "functions": 6,
+        "profile": {
+          "name": "selected-functions-v1",
+          "options": [
+            "StripDebugInfo"
+          ]
+        },
+        "notice": {
+          "schema": "nte.component-notice/1",
+          "component": "NTE_PluginTraining",
+          "build_target": "nte_plugin_training",
           "project": "UETools-NTE",
           "declaration_version": 1,
           "purpose": "\u672c\u7ec4\u4ef6\u7528\u4e8e\u88c5\u5907\u8ba1\u7b97\u3001\u6e38\u620f\u7406\u89e3\u548c\u7ecf\u6388\u6743\u7684\u8bca\u65ad\u4e0e\u6570\u636e\u91c7\u96c6\u3002",

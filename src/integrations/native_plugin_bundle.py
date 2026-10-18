@@ -44,10 +44,16 @@ HUD_DEPLOYMENT_PATHS = {
 }
 
 
+TRAINING_DEPLOYMENT_PATHS = {
+    "training_plugin": "plugins/NTE_PluginTraining.dll",
+    "training_signature": "plugins/NTE_PluginTraining.dll.sig",
+}
+
 def native_deployment_paths(layout: str, roles=()) -> Mapping[str, str]:
     if layout == SPLIT_PLUGIN_LAYOUT:
         return MappingProxyType({**HOT_PLUGIN_DEPLOYMENT_PATHS, **HUD_DEPLOYMENT_PATHS,
-                                 **PERFORMANCE_DEPLOYMENT_PATHS})
+                                 **PERFORMANCE_DEPLOYMENT_PATHS, **(TRAINING_DEPLOYMENT_PATHS
+                                 if set(roles) & TRAINING_DEPLOYMENT_PATHS.keys() else {})})
     if layout == HOT_PLUGIN_LAYOUT:
         return MappingProxyType({**HOT_PLUGIN_DEPLOYMENT_PATHS, **(PERFORMANCE_DEPLOYMENT_PATHS
                                 if set(roles) & PERFORMANCE_DEPLOYMENT_PATHS.keys() else {})})
@@ -82,7 +88,7 @@ def native_upgrade_predecessors(payload: dict) -> Mapping[str, tuple[str, ...]]:
     predecessors = {}
     for relative, hashes in declared.items():
         if relative not in {*NATIVE_PLUGIN_DEPLOYMENT_PATHS.values(), *HOT_PLUGIN_DEPLOYMENT_PATHS.values(),
-                            *PERFORMANCE_DEPLOYMENT_PATHS.values(), *HUD_DEPLOYMENT_PATHS.values()}:
+                            *PERFORMANCE_DEPLOYMENT_PATHS.values(), *HUD_DEPLOYMENT_PATHS.values(), *TRAINING_DEPLOYMENT_PATHS.values()}:
             raise ValueError("upgrade_from deployment path")
         if not isinstance(hashes, list) or not hashes or any(
             not isinstance(digest, str) or not _HASH.fullmatch(digest) for digest in hashes
@@ -112,7 +118,7 @@ def _validate_split_protection(root: Path, roles: dict, files: dict, digests: di
     if protection.get("tool") != "VMProtect" or not _HASH.fullmatch(protection.get("policy_sha256", "")):
         raise ValueError("protected component policy")
     binaries = protection.get("binaries", {})
-    dll_roles = ("host", "user_plugin", "capture_plugin", "hud_plugin", "performance_plugin")
+    dll_roles = ("host", "user_plugin", "capture_plugin", "hud_plugin", "performance_plugin") + (("training_plugin",) if "training_plugin" in roles else ())
     expected_names = {Path(roles[role]).name for role in dll_roles}
     if not isinstance(binaries, dict) or set(binaries) != expected_names:
         raise ValueError("all delivery DLLs require protection")
@@ -179,6 +185,8 @@ def _inspect_native_plugin_payload(root: Path, manifest: Path, payload: object) 
         if len(set(raw_capabilities)) != len(raw_capabilities) or not NATIVE_PLUGIN_CAPABILITIES.issubset(raw_capabilities):
             raise ValueError("required capabilities")
         capabilities = frozenset(raw_capabilities)
+        if capabilities & {'calc.quick_wheel.v1', 'calc.quick_wheel.v2'} and not TRAINING_DEPLOYMENT_PATHS.keys() <= declared_roles.keys():
+            raise ValueError('quick wheel capability requires signed training plugin pair')
         if 'performance.trace.v1' in capabilities and not PERFORMANCE_DEPLOYMENT_PATHS.keys() <= declared_roles.keys():
             raise ValueError('performance capability requires signed plugin pair')
         commits = {key: value.casefold() for key, value in declared_commits.items()}

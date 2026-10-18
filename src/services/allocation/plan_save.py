@@ -14,6 +14,7 @@ from src.storage.sqlite.user_data_dao import UserDataDao
 from src.services.allocation.direct_postprocess import verify_direct_postprocess_ownership
 from src.services.allocation.axis_postprocess import verify_axis_postprocess_save
 from src.services.allocation.direct_group_postprocess import verify_direct_group_save
+from src.services.allocation.baseline_fallback import verify_baseline_save
 from src.integrations.analysis_core_release import create_bundled_analysis_client
 
 
@@ -33,12 +34,16 @@ def save_allocation_plans(*, database_path, static_database_path, static_identit
     release = require_allocation_release(static_release, static_database_path)
     if not static_identity or static_identity[:2] != (release.database_path, release.dataset_id):
         raise RuntimeError("计算结果与冻结静态来源不一致，请重新计算。")
-    axis_rows = [row for row in rows if ((row.get("payload") or {}).get("damage_optimization") or {}).get("objective") == "frozen_axis_expected_v1"]
-    group_rows = [row for row in rows if row not in axis_rows and "group_index" in ((row.get("payload") or {}).get("damage_optimization") or {})]
-    direct_rows = [row for row in rows if row not in axis_rows and row not in group_rows]
+    baseline_rows = [row for row in rows if ((row.get("payload") or {}).get("damage_optimization") or {}).get("result_kind") == "baseline"
+                     or row.get("baseline_preview_source") is not None]
+    optimized_rows = [row for row in rows if row not in baseline_rows]
+    axis_rows = [row for row in optimized_rows if ((row.get("payload") or {}).get("damage_optimization") or {}).get("objective") == "frozen_axis_expected_v1"]
+    group_rows = [row for row in optimized_rows if row not in axis_rows and "group_index" in ((row.get("payload") or {}).get("damage_optimization") or {})]
+    direct_rows = [row for row in optimized_rows if row not in axis_rows and row not in group_rows]
     if axis_rows and axis_analysis_client is None:
         axis_analysis_client = create_bundled_analysis_client(static_database_path=release.database_path)
     def verify_optimization(dao):
+        verify_baseline_save(dao, baseline_rows, dataset_id=release.dataset_id, database_path=database_path)
         verify_direct_postprocess_ownership(dao, direct_rows, dataset_id=release.dataset_id)
         if group_rows:
             verify_direct_group_save(dao, group_rows, dataset_id=release.dataset_id)
@@ -57,7 +62,7 @@ def save_allocation_plans(*, database_path, static_database_path, static_identit
         prepared = []
         for index, row in enumerate(rows, 1):
             checkpoint()
-            arguments = {key: value for key, value in row.items() if key not in {"slot_id", "axis_preview_source", "direct_group_preview_source"}}
+            arguments = {key: value for key, value in row.items() if key not in {"slot_id", "axis_preview_source", "direct_group_preview_source", "baseline_preview_source"}}
             plan = bridge.prepare_role_plan(**arguments)
             slot_id = row["slot_id"]
             if slot_id is None:

@@ -16,11 +16,13 @@ from src.storage.sqlite.user_data_dao import UserDataDao
 ROOT = Path(__file__).resolve().parents[3]
 
 
-def create_axis_catalog_case(directory: Path, *, unknown_event=False, core_suit_id=None, second_character=False, account_id="axis-evaluation-public"):
+def create_axis_catalog_case(directory: Path, *, unknown_event=False, core_suit_id=None, second_character=False, account_id="axis-evaluation-public", main_character_id=1072, capture_suffix="", merge_inventory=False):
     """Reuse the mature long-page persistence path; only UIDs, rolls and recorded hit amounts are synthetic."""
     database, static_path = directory / "synthetic-axis-user.sqlite3", ROOT / "data/game_static.sqlite3"
+    capture_operation = "capture-axis-public" + capture_suffix
+    source_record = "battle-axis-public" + capture_suffix
     with StaticCatalogReleaseReader().read_unit(static_path) as unit:
-        plan = unit.dao.get_equipment_plan(1072)
+        plan = unit.dao.get_equipment_plan(main_character_id)
         templates = {row["item_id"]: row for row in unit.dao.list_equipment_items()}
         if core_suit_id is not None:
             # complete 场景明示选择另一件正式卡带，不删除默认 Suit2 的条件状态缺口。
@@ -44,6 +46,11 @@ def create_axis_catalog_case(directory: Path, *, unknown_event=False, core_suit_
         stronger["main_stats"][0]["value"] = 0.10
         items.append(stronger)
     with UserDataDao(database, account_id=account_id) as dao:
+        if merge_inventory and dao.current_inventory_snapshot_id() is not None:
+            _, previous = dao.export_inventory_snapshot(dao.current_inventory_snapshot_id())
+            previous = [{**row, "uid": {"slot": row["uid_slot"], "serial": row["uid_serial"]}, "grid": row["grid_count"]} for row in previous]
+            combined = {(row["kind"], row["uid"]["slot"], row["uid"]["serial"]): row for row in [*previous, *items]}
+            items = list(combined.values())
         snapshot = dao.import_inventory_snapshot({"method": "event.inventory.snapshot", "params": {
             "complete": True, "generation": 1, "sequence": 1, "observed_at_unix_ms": 1_787_000_000_000,
             "item_count": len(items), "items": items}})
@@ -51,7 +58,7 @@ def create_axis_catalog_case(directory: Path, *, unknown_event=False, core_suit_
     dependencies = BattleReportPersistenceDependencies(account_id, database, 1, static_path)
     persistence = BattleReportPersistenceService(dependencies=dependencies, context_is_current=lambda _: True,
                                                 operation_context=OperationContext.create("battle_report"))
-    persistence.begin_capture(capture_operation_id="capture-axis-public", captured_at_utc="2026-08-20T00:00:00+00:00")
+    persistence.begin_capture(capture_operation_id=capture_operation, captured_at_utc="2026-08-20T00:00:00+00:00")
     hits = []
     for sequence, amount in enumerate((100.0, 200.0, 300.0), 1):
         hits.append({"sequence": str(sequence), "timestamp_unix": 100 + sequence * 0.5,
@@ -69,22 +76,29 @@ def create_axis_catalog_case(directory: Path, *, unknown_event=False, core_suit_
             "character_id": 1003, "character_name": "早雾", "damage": 120.0, "total_damage": 120.0,
             "ability_name": "GA_Sagiri_Melee", "attack_type": "normal", "damage_component": "normal",
             "damage_attribute": "incantation", "gameplay_effect_name": "GE_Player_Sagiri_Melee1_Damage"})
-    persistence.append_axis_page(capture_operation_id="capture-axis-public", page={
-        "contract_version": 4, "battle_record_id": "battle-axis-public", "generation": "1", "complete": True,
+    if main_character_id == 1003:
+        for hit in hits:
+            hit.update(character_id=1003, character_name="早雾", ability_name="GA_Sagiri_Melee",
+                       attack_type="normal", damage_component="normal", damage_attribute="incantation",
+                       gameplay_effect_name="GE_Player_Sagiri_Melee1_Damage")
+    persistence.append_axis_page(capture_operation_id=capture_operation, page={
+        "contract_version": 4, "battle_record_id": source_record, "generation": "1", "complete": True,
         "total_hits": str(len(hits)), "retained_hits": len(hits), "rows": hits})
     summary = {"duration_seconds": 2.0, "dps_time_mode": "subtract_time_stop", "total_damage": 600.0,
         "total_dps": 300.0, "total_damage_taken": 0.0, "total_hits": 3, "characters": [{
             "char_id": 1072, "name": "灵可", "hits": 3, "damage": 600.0, "dps": 300.0, "damage_share_percent": 100.0}],
         "skills": [], "abyss": {"detected": False}, "quality": {}}
+    if main_character_id == 1003:
+        summary["characters"][0].update(char_id=1003, name="早雾")
     if second_character:
         summary.update(total_damage=720.0, total_hits=4, duration_seconds=2.5, total_dps=288.0)
         summary["characters"].append({"char_id": 1003, "name": "早雾", "hits": 1, "damage": 120.0,
                                      "dps": 48.0, "damage_share_percent": 120 / 720 * 100})
         summary["characters"][0].update(dps=240.0, damage_share_percent=600 / 720 * 100)
     outcome = persistence.finalize_summary(raw_summary_payload=summary, summary=parse_battle_summary(summary),
-        capture_operation_id="capture-axis-public", captured_at_utc="2026-08-20T00:00:00+00:00",
+        capture_operation_id=capture_operation, captured_at_utc="2026-08-20T00:00:00+00:00",
         finalized_at_utc="2026-08-20T00:00:02+00:00", raw_record_payload={
-            "contract_version": 4, "battle_record_id": "battle-axis-public", "generation": "1", "axis_complete": True,
+            "contract_version": 4, "battle_record_id": source_record, "generation": "1", "axis_complete": True,
             "axis_first_sequence": "1", "axis_total_hits": str(len(hits)), "time_stop_intervals": []})
     assert outcome.battle_record_id is not None
     history = BattleReportHistoryService(dependencies=dependencies, context_is_current=lambda _: True)
@@ -94,5 +108,5 @@ def create_axis_catalog_case(directory: Path, *, unknown_event=False, core_suit_
     baseline = [row for row in actual if not (row["kind"] == "core" and row["uid_serial"] == 101)]
     candidate = [next(row for row in actual if row["kind"] == "core" and row["uid_serial"] == 101),
                  *[row for row in actual if row["kind"] == "module"]]
-    return {"dependencies": dependencies, "battle_record_id": outcome.battle_record_id, "dataset_id": dataset,
+    return {"main_character_id": main_character_id, "dependencies": dependencies, "battle_record_id": outcome.battle_record_id, "dataset_id": dataset,
             "source_snapshot_id": snapshot, "baseline_equipment": baseline, "candidate_equipment": candidate}

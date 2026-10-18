@@ -74,12 +74,13 @@ def test_battle_controller_handoff_preserves_explicit_selector_but_excludes_marg
 def test_scanning_entry_navigates_and_queues_same_service_without_simulated_click(ui):
     _app, parent = ui
     scan, strategy = QButtonGroup(parent), QButtonGroup(parent)
-    for group, ids in ((scan, (1, 4)), (strategy, (0, 3))):
+    for group, ids in ((scan, (1, 4)), (strategy, (0, 2))):
         for identifier in ids:
             group.addButton(QRadioButton(parent), identifier)
     clicked = Mock()
     scan.button(4).clicked.connect(clicked)
-    strategy.button(3).clicked.connect(clicked)
+    strategy.button(2).setChecked(True)
+    strategy.button(2).clicked.connect(clicked)
     callbacks = []
     owner = SimpleNamespace(is_running=lambda: False, build_page=Mock(), navigate=Mock(), dialog_parent=parent,
         scan_group=scan, strategy_group=strategy, role_selector=SimpleNamespace(get_selected=lambda: ["灵可"]),
@@ -90,7 +91,7 @@ def test_scanning_entry_navigates_and_queues_same_service_without_simulated_clic
         execute.assert_not_called()
         callbacks[0]()
     owner.navigate.assert_called_once_with("execute")
-    assert scan.checkedId() == 4 and strategy.checkedId() == 3
+    assert scan.checkedId() == 4 and strategy.checkedId() == 2
     execute.assert_called_once_with(owner, axis_initial_request=request)
     clicked.assert_not_called()
 

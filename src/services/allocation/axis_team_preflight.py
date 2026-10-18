@@ -101,4 +101,7 @@ def prepare_axis_team_selection(client, selection, selected_roles, *, user_datab
                    fixed_team_reserved_uids=tuple(team["reserved_uids"]),
                    fixed_team_proof_json=json.dumps(proof, ensure_ascii=False, allow_nan=False),
                    fixed_team_members_json=json.dumps(team["fixed_members"], ensure_ascii=False, allow_nan=False),
+                   damage_priority_groups=tuple(tuple(group) for group in team.get("damage_priority_groups") or ()),
+                   damage_priority_reason=None if team.get("damage_priority_groups") else
+                       "组件或战报缺少队内伤害排序，本次基础配装按所选成员同级分配",
                    team_inventory_snapshot_id=snapshot)

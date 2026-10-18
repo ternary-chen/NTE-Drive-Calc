@@ -250,3 +250,14 @@ def test_axis_rematch_protocol_requires_new_capability_budget_policy_and_native_
         bad["plans"]["A"]["native_layout"]["drives"][0][key] = value
         with pytest.raises(NativeAnalysisError):
             postprocess_allocation_groups(client(bad), request, axis=True)
+
+
+def test_weighted_axis_ordering_keeps_exact_result_contract():
+    response = group_response(axis=True)
+    response["ordering_policy"] = "exact_then_damage_weighted_delta_then_uid"
+    result = postprocess_allocation_groups(client(response), group_request(axis=True), axis=True)
+    assert result["ordering_policy"] == response["ordering_policy"]
+    assert result["optimization"]["candidate_value"] == response["optimization"]["candidate_value"]
+    response["ordering_policy"] = "unverified_approximate_acceptance"
+    with pytest.raises(NativeAnalysisError):
+        postprocess_allocation_groups(client(response), group_request(axis=True), axis=True)

@@ -107,10 +107,10 @@ def test_damage_identity_mismatch_never_creates_a_plan(tmp_path, field, value):
 
 
 @pytest.mark.parametrize("status", ["failed", "not_ready"])
-def test_unoptimized_b0_requires_explicit_original_strategy_save(tmp_path, status):
+def test_unverified_unoptimized_payload_requires_baseline_receipt(tmp_path, status):
     path, _snapshot, payload, kwargs = setup_case(tmp_path)
     payload["damage_optimization"]["status"] = status
-    with pytest.raises(RuntimeError, match="角色优先重新计算"):
+    with pytest.raises(RuntimeError, match="冻结保存凭证"):
         save_allocation_plans(**kwargs)
     with UserDataDao(path) as dao:
         assert dao.list_loadout_slots(1003) == []

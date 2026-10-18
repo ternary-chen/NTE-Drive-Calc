@@ -6,7 +6,7 @@ from pathlib import Path, PurePosixPath
 
 from src.integrations.game_component_bundle import inspect_game_component_bundle
 from src.integrations.native_plugin_bundle import (
-    native_upgrade_predecessors, native_deployment_paths, NATIVE_PLUGIN_LAYOUTS, SPLIT_PLUGIN_LAYOUT,
+    native_upgrade_predecessors, native_deployment_paths, NATIVE_PLUGIN_LAYOUTS, SPLIT_PLUGIN_LAYOUT, TRAINING_DEPLOYMENT_PATHS,
 )
 
 
@@ -29,7 +29,7 @@ NATIVE_PROGRAMS = {
 }
 HOT_NATIVE_PROGRAMS = {
     "third_party/native-capture/capture/" + relative: NATIVE_PAYLOAD_DIRECTORY + "/" + relative
-    for relative in native_deployment_paths(SPLIT_PLUGIN_LAYOUT).values()
+    for relative in {**native_deployment_paths(SPLIT_PLUGIN_LAYOUT), **TRAINING_DEPLOYMENT_PATHS}.values()
     if relative.startswith("plugins/")
 }
 NATIVE_NOTICES = frozenset({

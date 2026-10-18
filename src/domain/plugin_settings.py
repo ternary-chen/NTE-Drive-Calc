@@ -6,12 +6,12 @@ from dataclasses import asdict, dataclass
 class PluginSettings:
     cooldown: bool = False
     enemy_bars: bool = False
-    ready_cue: bool = True
     hp: bool = True
     unbalance: bool = True
 
     def payload(self) -> dict[str, bool]:
-        return asdict(self)
+        # 原生协议仍携带就绪位，但它随技能显示总开关派生，不再是独立偏好。
+        return {**asdict(self), "ready_cue": self.cooldown}
 
     @property
     def enabled(self) -> bool:

@@ -1,4 +1,4 @@
-# 校验冻结战报轴批量评价协议，只接纳正式完整目标，不求和展示投影或另算伤害。
+# 校验冻结战报轴评价及带覆盖率的分配目标，只消费原生计分事实，不在界面另算伤害。
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
@@ -192,6 +192,23 @@ def _quantification(value: Any) -> dict[str, Any] | None:
     return quantification
 
 
+def _coverage(value: Any, anchor) -> dict[str, Any]:
+    keys = {"policy", "domain_sha256", "basis_damage", "covered_damage", "quantified_damage", "estimated_damage",
+            "excluded_damage", "proven_unchanged_damage", "coverage_ratio", "quantified_ratio"}
+    if (not isinstance(value, dict) or set(value) != keys or value["policy"] != "available_fixed_domain_v1"
+            or not _digest(value["domain_sha256"]) or any(not _number(value[k]) for k in keys - {"policy", "domain_sha256"})
+            or value["basis_damage"] <= 0 or value["covered_damage"] <= 0
+            or not _close(value["basis_damage"], anchor)
+            or not _close(value["quantified_damage"] + value["estimated_damage"], value["covered_damage"])
+            or not _close(value["covered_damage"] + value["excluded_damage"], anchor)
+            or value["proven_unchanged_damage"] > value["quantified_damage"]
+            or not 0 <= value["coverage_ratio"] <= 1 or not 0 <= value["quantified_ratio"] <= 1
+            or not _close(value["coverage_ratio"], value["covered_damage"] / anchor)
+            or not _close(value["quantified_ratio"], value["quantified_damage"] / anchor)):
+        raise _error()
+    return dict(value)
+
+
 def _row(value: Any, identifier: str) -> dict[str, Any]:
     if (not isinstance(value, dict) or not set(ROW_KEYS) <= value.keys() or value["candidate_id"] != identifier
             or value["status"] not in STATUSES or value["model_id"] != MODEL_ID
@@ -209,6 +226,18 @@ def _row(value: Any, identifier: str) -> dict[str, Any]:
             raise _error()
     elif value["status"] != "unavailable" or not result["gaps"]:
         raise _error()
+    if value.get("coverage") is not None:
+        coverage = _coverage(value["coverage"], anchor)
+        if (quantification is None or value["status"] not in {*COMPLETE, "partial"}
+                or not _number(candidate) or not all(_number(value[k], signed=True) for k in ("delta_from_anchor", "delta_from_baseline"))
+                or coverage["quantified_damage"] > quantification["fully_quantified_damage"] + quantification["proven_unchanged_damage"] + max(1.0, anchor) * 1e-9
+                or coverage["proven_unchanged_damage"] > quantification["proven_unchanged_damage"] + max(1.0, anchor) * 1e-9
+                or not _close(candidate - coverage["covered_damage"], value["delta_from_anchor"])
+                or value["status"] in COMPLETE and (coverage["estimated_damage"] or coverage["excluded_damage"]
+                    or quantification["status"] != value["status"])):
+            raise _error()
+        result["coverage"] = coverage
+        return result
     if value["status"] in COMPLETE:
         if (quantification is None or quantification["status"] != value["status"]
                 or not _number(anchor) or not _number(candidate)
@@ -274,13 +303,21 @@ def decode_axis_response_facts(result: Mapping[str, Any], request: Mapping[str, 
         if row["anchor_value"] is not None and baseline["anchor_value"] is not None:
             if not _close(row["anchor_value"], baseline["anchor_value"]):
                 raise _error()
-        if row["status"] in COMPLETE:
+        if row.get("coverage"):
+            coverage, base_coverage = row["coverage"], baseline.get("coverage")
+            if ("selected_character_id" in request or not base_coverage or scope is None
+                    or scope["native_transport_complete"] is False or any(identity[k] is None for k in IDENTITY_KEYS)
+                    or any(coverage[k] != base_coverage[k] for k in ("policy", "domain_sha256", "basis_damage", "covered_damage"))
+                    or baseline["candidate_value"] is None
+                    or not _close(row["candidate_value"] - baseline["candidate_value"], row["delta_from_baseline"])):
+                raise _error()
+        elif row["status"] in COMPLETE:
             if (scope is None or scope["native_transport_complete"] is False
                     or any(identity[key] is None for key in IDENTITY_KEYS)
                     or baseline["status"] not in COMPLETE
                     or not _close(row["candidate_value"] - baseline["candidate_value"], row["delta_from_baseline"])):
                 raise _error()
-    # 只输出已校验字段；known/heuristic/原击展示金额均不进入正式目标。
+    # 普通评价保持完整目标；分配作业的部分目标必须带同一冻结计分域和守恒覆盖桶。
     return {"source_input_digest": result["source_input_digest"],
             "frozen_identity": {key: identity[key] for key in IDENTITY_KEYS}, "scope": scope, "baseline": baseline, "candidates": rows}
 

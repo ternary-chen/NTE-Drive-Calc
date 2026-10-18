@@ -1,5 +1,7 @@
 # 验证五 DLL 的保护与声明门禁，以及显式更新顺序；不加载或部署真实组件。
 import shutil
+import hashlib
+from copy import deepcopy
 
 import pytest
 
@@ -14,6 +16,30 @@ def split_bundle(tmp_path):
     metadata = add_split_roles(root, payload)
     write_manifest(root, payload)
     return root, payload, metadata
+
+
+def test_quick_wheel_requires_signed_protected_training_pair(tmp_path):
+    root, payload, metadata = split_bundle(tmp_path)
+    payload['capabilities'].append('calc.quick_wheel.v2')
+    write_manifest(root, payload)
+    assert not inspect_native_plugin_bundle(root).ready
+    for role, suffix in [('training_plugin', ''), ('training_signature', '.sig')]:
+        relative = 'native/plugins/NTE_PluginTraining.dll' + suffix
+        path = root / relative
+        path.write_bytes(('synthetic training fixture ' + role).encode())
+        payload['roles'][role] = relative
+        payload['files'][relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+        payload['file_sizes'][relative] = path.stat().st_size
+    record = deepcopy(metadata['protection']['binaries']['NTE_PluginHUD.dll'])
+    record['sha256'] = payload['files'][payload['roles']['training_plugin']]
+    record['notice']['component'] = 'NTE_PluginTraining'
+    metadata['protection']['binaries']['NTE_PluginTraining.dll'] = record
+    write_metadata(root, payload, metadata)
+    write_manifest(root, payload)
+    checked = inspect_native_plugin_bundle(root)
+    assert checked.ready and checked.deployment_paths['training_plugin'].endswith('NTE_PluginTraining.dll')
+    (root / payload['roles']['training_signature']).unlink()
+    assert not inspect_native_plugin_bundle(root).ready
 
 
 def test_split_bundle_binds_all_five_dlls_and_keeps_missing_hud_unavailable(tmp_path):

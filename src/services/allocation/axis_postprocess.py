@@ -1,4 +1,4 @@
-# 冻结真实轴配装后处理请求，复用正式评分和布局门禁，只接纳原生完整目标。
+# 冻结真实轴配装后处理请求，复用正式评分和布局门禁，接纳带覆盖率的冻结部分目标。
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -37,6 +37,7 @@ class FrozenAxisAllocationInputs:
     reserved_uids: tuple[str, ...]
     owners_sha256: str
     reason: str
+    additional_axes: tuple = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,9 +145,27 @@ def freeze_axis_allocation_inputs(client, request, selection, *, user_database_p
 
 def _metadata(frozen, client, *, status, reason="", response=None, input_identity=None):
     response = response or {}
+    reason = reason or (response.get("optimization") or {}).get("reason", "")
+    if reason == "axis_baseline_not_ready":
+        gaps = (response.get("baseline") or {}).get("gaps") or []
+        if any(gap.get("code") == "outer_realm_recipient_evidence_missing" for gap in gaps):
+            reason = "outer_realm_recipient_evidence_missing"
+    team_reports = deepcopy(response.get("team_reports"))
+    ranked = frozen.selection.rank_baseline
+    sources = (frozen, *frozen.additional_axes)
+    priority_reason = next((item.selection.damage_priority_reason for item in sources if item.selection.damage_priority_reason), None)
+    priority = {"policy": "equal_members_fallback" if priority_reason else "within_team_damage_rank_v1",
+                "reason": priority_reason, "team_ranks": [[list(group) for group in item.selection.damage_priority_groups] for item in sources]} if ranked else None
+    if team_reports:
+        for report, source in zip(team_reports, (frozen, *frozen.additional_axes)):
+            report["anchor_mode"] = source.selection.anchor_mode
+            report["fixed_team_build_sha256"] = json.loads(source.selection.fixed_team_proof_json)["fixed_build_sha256"]
+            report["fixed_team_members"] = json.loads(source.selection.fixed_team_members_json or "[]")
     return {**deepcopy(response.get("optimization") or {}), "objective": MODEL_ID, "model_id": MODEL_ID,
         "selected_role": frozen.selection.selected_role, "character_id": frozen.selection.selected_character_id,
-        "status": status, "reason": reason or (response.get("optimization") or {}).get("reason", ""),
+        "status": status, "reason": reason,
+        "coverage": deepcopy(((response.get("selected_result") if status == "completed" else response.get("baseline")) or {}).get("coverage")),
+        "team_reports": team_reports, "baseline_priority": priority,
         "source_snapshot_id": frozen.snapshot_id, "dataset_id": client.dataset_version,
         "engine_version": client.engine_version, "equipment_value_mode": "actual_level",
         "owners_sha256": frozen.owners_sha256,
@@ -174,8 +193,9 @@ def optimize_frozen_axis(client, request, scorer, baseline_plans, frozen, *, che
     if frozen.reason or frozen.source is None or not getattr(client, "supports_battle_axis_group_postprocess", False):
         return _keep_baseline(baseline_plans, frozen, client, frozen.reason or "基础完成，轴优化组件未就绪")
     def check():
-        axis_source_checkpoint(client, frozen.dependencies, frozen.semantics_path, lambda _: True,
-                               frozen.source, checkpoint=checkpoint)
+        for source in (frozen, *frozen.additional_axes):
+            axis_source_checkpoint(client, source.dependencies, source.semantics_path, lambda _: True,
+                                   source.source, checkpoint=checkpoint)
     check()
     if native_job is None:
         raise NativeAnalysisError("轴伤策略必须消费完整 Rust 作业，不再调用旧分阶段计算入口")
@@ -183,6 +203,11 @@ def optimize_frozen_axis(client, request, scorer, baseline_plans, frozen, *, che
         return _keep_baseline(baseline_plans, frozen, client, frozen.reason or "基础配装尚不完整，保留角色优先结果")
     inner = native_job.inner
     identity = inner["input_identity"]
+    if frozen.additional_axes and native_job.response.get("selected_result") is None:
+        # 未就绪信息可能来自第二场；它不是第一场来源变更，不取消已完成的共同 B0。
+        return _keep_baseline(baseline_plans, frozen, client,
+            native_job.response.get("optimization", {}).get("reason") or "双队基准未就绪，保留基础配装",
+            identity=identity)
     try:
         verify_axis_source(client, frozen.dependencies, frozen.semantics_path, lambda _: True, frozen.source, checkpoint=checkpoint)
         response = native_job.response
@@ -197,7 +222,7 @@ def optimize_frozen_axis(client, request, scorer, baseline_plans, frozen, *, che
         base_scores = native_job.base_scores
         plans = restore_postprocess_results(request, scorer, baseline_plans, response["plans"], eligible,
                                              frozen.reserved_uids,
-                                             allow_blueprint_changes=response["version"] == 2, base_scores=base_scores,
+                                             allow_blueprint_changes=response["version"] in (2, 3), base_scores=base_scores,
                                              native_verified=True)
         # 共享目标依赖完整Bk；未保存成员仍是冻结B0假定，不能事后以当前槽位补齐。
         shared_builds = {"source_snapshot_id": frozen.snapshot_id, "input_identity": identity,
@@ -209,6 +234,13 @@ def optimize_frozen_axis(client, request, scorer, baseline_plans, frozen, *, che
                 if character_id in frozen.selection.participating_character_ids]}
         result = _keep_baseline(plans, frozen, client, "非优化成员仅完成基础配装", identity=identity, response=response)
         save_dependencies = linked_save_dependencies(groups, optimization["exchange_links"])
+        if frozen.selection.rank_baseline:
+            # 基础名次只决定 B0 分配；最终目标仍依赖整队构筑，不能拆名次单独保存。
+            save_dependencies = {role: sorted(plans) for role in save_dependencies}
+        if frozen.additional_axes:
+            response["baseline"]["coverage"] = None
+            if response.get("selected_result") is not None:
+                response["selected_result"]["coverage"] = None
         for group in groups:
             for member in group["members"]:
                 role = member["role"]
@@ -217,7 +249,7 @@ def optimize_frozen_axis(client, request, scorer, baseline_plans, frozen, *, che
                 metadata = _metadata(frozen, client, status="completed" if completed else "budget_limited" if first_scan_cut else "not_ready",
                                      response=response, input_identity=identity)
                 metadata.update(deepcopy(native_job.facts))
-                metadata.update(selected_role=role, character_id=member["character_id"], reason="首个完整单件扫描被预算截断，保留B0；基础方案请另按角色优先重算保存" if first_scan_cut else group["reason"])
+                metadata.update(selected_role=role, character_id=member["character_id"], reason="首轮搜索达到预算，已保留本次基础配装。" if first_scan_cut else group["reason"])
                 metadata.update(save_dependencies=save_dependencies[role], shared_build_dependencies=deepcopy(shared_builds),
                     shared_build_dependencies_sha256=allocation_inputs_digest(shared_builds),
                     group_index=group["group_index"], group_members=deepcopy(group["members"]),
@@ -296,4 +328,5 @@ def verify_axis_postprocess_save(dao, rows, *, dataset_id, client, checkpoint=No
             raise RuntimeError("同轴共享目标的已接纳组须完整保存全部成员。")
         sources[frozen.source.source_input_digest] = frozen
     for frozen in sources.values():
-        verify_axis_source(client, frozen.dependencies, frozen.semantics_path, lambda _: True, frozen.source, checkpoint=checkpoint)
+        for source in (frozen, *frozen.additional_axes):
+            verify_axis_source(client, source.dependencies, source.semantics_path, lambda _: True, source.source, checkpoint=checkpoint)

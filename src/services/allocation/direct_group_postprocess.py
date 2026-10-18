@@ -125,7 +125,7 @@ def optimize_standard_direct_groups(client, request, scorer, baseline_plans, fro
                 completed = role in eligible and not first_scan_cut
                 metadata = {**_base_metadata(frozen, client, role), **deepcopy(member), **deepcopy(native_job.facts),
                     "status": "completed" if completed else "budget_limited" if first_scan_cut else "not_ready",
-                    "reason": "首个完整单件扫描被预算截断，保留B0；基础方案请另按角色优先重算保存" if first_scan_cut else group["reason"],
+                    "reason": "首轮搜索达到预算，已保留本次基础配装。" if first_scan_cut else group["reason"],
                     "input_identity": identity, "neighborhood": optimization["neighborhood"], "group_index": group["group_index"],
                     "group_members": members, "group_objective_value": group["objective_value"],
                     "save_dependencies": sorted(dependencies[role]),

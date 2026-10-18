@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from src.integrations.allocation_group_postprocess import _request, _response
 from src.integrations.native_allocation import restore
-from src.integrations.native_blueprints import DEFAULT_BUDGET, _verify_plans
+from src.integrations.native_blueprints import DEFAULT_BUDGET, STOP_REASONS, _verify_plans
 from src.integrations.nte_analysis_core import MAX_BYTES, REQUEST_SCHEMA, RESPONSE_SCHEMA, NativeAnalysisError, _json_object
 from src.services.allocation.postprocess_facts import allocation_inputs_digest, freeze_postprocess_allocation_request
 
@@ -56,8 +56,12 @@ def execute_damage_job(client, request, scorer, frozen, blueprints, unit, *, axi
     allocation = freeze_postprocess_allocation_request(request, scorer)
     geometry = {row["shape_id"]: [(cell["x"], cell["y"]) for cell in row["cells"]]
                 for row in unit.dao.list_shapes()}
-    search_millis = max(1, min(120_000, int(client.timeout * 1_000) - _response_grace(client)))
-    budget = {"max_evaluations": max_evaluations if max_evaluations is not None else 1_024 if axis else 20_000,
+    from src.services.allocation.search_settings import search_budget
+    profile = search_budget(frozen.selection.search_mode) if axis else {"max_millis": 120_000, "max_evaluations": 20_000}
+    if axis and profile["max_millis"] > 120_000 and not getattr(client, "supports_axis_deep_search", False):
+        raise NativeAnalysisError("深搜需要新版分析组件，请更新组件或选择快搜")
+    search_millis = max(1, min(profile["max_millis"], int(client.timeout * 1_000) - _response_grace(client)))
+    budget = {"max_evaluations": max_evaluations if max_evaluations is not None else profile["max_evaluations"],
               "max_rounds": max_rounds, "max_millis": search_millis, "max_visits": 1_000_000}
     post = {"version": 2, "objective": "frozen_axis_expected_v1" if axis else "standard_direct_v1",
             "allocation_request": allocation, "baseline_plans": {}, "reserved_uids": list(frozen.reserved_uids),
@@ -70,6 +74,12 @@ def execute_damage_job(client, request, scorer, frozen, blueprints, unit, *, axi
                     anchor_mode=frozen.selection.anchor_mode, equipment_value_mode="actual_level",
                     team_preflight=json.loads(frozen.selection.fixed_team_proof_json),
                     inventory_equipment_by_uid=json.loads(frozen.inventory_json), baseline_equipment_by_character=[])
+        if frozen.additional_axes and ready:
+            post["version"] = 3
+            post["team_axes"] = [dict(character_ids=list(item.selection.selected_team_character_ids),
+                battle_request=json.loads(item.source.selector_json) if item.source else {},
+                anchor_mode=item.selection.anchor_mode, team_preflight=json.loads(item.selection.fixed_team_proof_json))
+                for item in (frozen, *frozen.additional_axes)]
     else:
         post["projection_inputs"] = (freeze_direct_projection_inputs(request, frozen.details, frozen.source_inventory,
             geometry_cells=geometry, checkpoint=checkpoint) if ready else {"details": {}, "inventory": {}, "geometry_cells": geometry})
@@ -104,7 +114,9 @@ def _decode(client, request, scorer, sent, value, *, axis):
             or not 0 <= value["elapsed_millis"] < sent["max_millis"] + (_response_grace(client) if isinstance(value.get("result"), dict) else 0)):
         raise _error()
     generated = value["blueprints"]
-    if generated.get("complete") is not True or generated.get("termination") != "complete":
+    if (type(generated.get("complete")) is not bool
+            or generated.get("termination") not in STOP_REASONS | {"complete"}
+            or generated["complete"] != (generated["termination"] == "complete")):
         raise _error()
     _verify_plans(generated, sent["blueprint_request"])
     blueprint_budget = sent["blueprint_request"]["budget"]
@@ -156,5 +168,5 @@ def _decode(client, request, scorer, sent, value, *, axis):
              "job_elapsed_millis": value["elapsed_millis"],
              "job_budget": {"max_millis": sent["max_millis"], "response_grace_millis": _response_grace(client), "blueprints": deepcopy(blueprint_budget),
                             "search": deepcopy(sent["postprocess_request"]["budget"])},
-             "blueprint_usage": {key: generated[key] for key in ("nodes", "generated", "combinations", "output_bytes")}}
+             "blueprint_usage": {key: generated[key] for key in ("nodes", "generated", "combinations", "output_bytes", "complete", "termination")}}
     return effective, baseline, NativeDamageJob(post, response, scores, value["elapsed_millis"], facts)

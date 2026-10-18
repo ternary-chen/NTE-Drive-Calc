@@ -2,6 +2,7 @@
 """Scanning workflow implementation used by ScanningController."""
 
 from __future__ import annotations
+from dataclasses import replace
 
 from src.features.input_operation_entry import request_input_entry, show_input_unavailable
 from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
@@ -91,6 +92,19 @@ def _do_exec(self, *, axis_initial_request=None):
         return
     dependencies = _current_scanning_dependencies(self)
     sel = self.role_selector.get_selected()
+    from src.features.allocation.team_axis_controls import configure_team_axes
+    if axis_initial_request is not None and configure_team_axes(self, initial_request=axis_initial_request) is None:
+        return
+    team_axis = (getattr(self, "team_axis_selection", None)
+                 if getattr(self, "team_axis_check", None) is not None and self.team_axis_check.isChecked() else None)
+    if team_axis is not None:
+        # 发起时冻结档位；后续用户切换控件不影响正在运行的作业。
+        team_axis = replace(team_axis, search_mode=self.team_axis_search.currentData())
+        if any(binding.axis.account_id != dependencies.account_id or binding.axis.generation != dependencies.generation
+               for binding in team_axis.teams):
+            QMessageBox.warning(self.dialog_parent, "战报增强", "账号已切换，请重新配置队伍与战报。")
+            return
+        sel = list(team_axis.roles) + [role for role in sel if role not in team_axis.roles]
     parse_only = not sel and sm in ("1", "2", "3")
     if not sel and not parse_only:
         QMessageBox.warning(self.dialog_parent, "提示", "请先选择目标角色！")
@@ -151,26 +165,23 @@ def _do_exec(self, *, axis_initial_request=None):
                 "由于版本更新解析逻辑变动，需要重新进行全量扫描",
             )
             return
-    strat = "axis_priority" if axis_initial_request is not None else allocation_strategy_for_button(self.strategy_group.checkedId())
+    strat = allocation_strategy_for_button(self.strategy_group.checkedId())
     selection_error = None if parse_only else direct_strategy_selection_error(strat, sel)
     if selection_error:
         QMessageBox.warning(self.dialog_parent, "直伤优化目标", selection_error)
         return
-    axis_selection = None
-    if strat == "axis_priority" and not parse_only:
+    axis_selection = team_axis
+    if team_axis is not None and not parse_only:
         if sm != "4":
             QMessageBox.warning(self.dialog_parent, "轴策略使用固定库存", "请选直接读取库存；先完成同步或扫描，再明确选择战报轴优化。")
             return
-        axis_selection = self.choose_axis_allocation(sel, initial_request=axis_initial_request)
-        if axis_selection is None:
-            return
-    cs = self.role_selector.get_custom_sets()
-    cw = self.role_selector.get_custom_weapons() if hasattr(self.role_selector, "get_custom_weapons") else {}
-    tmf = self.role_selector.get_tape_main_filters()
-    cpm = self.role_selector.get_crit_priority_modes()
-    crc = self.role_selector.get_crit_rate_caps()
-    crb = self.role_selector.get_crit_rate_baselines()
-    sem = self.role_selector.get_set_effect_modes()
+    cs = self.role_selector.get_custom_sets(**({"roles": sel} if team_axis is not None else {}))
+    cw = self.role_selector.get_custom_weapons(**({"roles": sel} if team_axis is not None else {})) if hasattr(self.role_selector, "get_custom_weapons") else {}
+    tmf = self.role_selector.get_tape_main_filters(**({"roles": sel} if team_axis is not None else {}))
+    cpm = self.role_selector.get_crit_priority_modes(**({"roles": sel} if team_axis is not None else {}))
+    crc = self.role_selector.get_crit_rate_caps(**({"roles": sel} if team_axis is not None else {}))
+    crb = self.role_selector.get_crit_rate_baselines(**({"roles": sel} if team_axis is not None else {}))
+    sem = self.role_selector.get_set_effect_modes(**({"roles": sel} if team_axis is not None else {}))
     pg = self.role_selector.get_priority_groups() if hasattr(self.role_selector, "get_priority_groups") else None
     preference_error = role_preference_mode_error(strat, tmf, cpm, crc)
     if preference_error:

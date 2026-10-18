@@ -32,9 +32,10 @@ class _ToggleSwitch(QCheckBox):
 
 
 class PluginsPage(QWidget):
-    def __init__(self, *, service, request_apply, show_detection, parent=None):
+    def __init__(self, *, service, request_apply, show_detection, quick_wheel=None, parent=None):
         super().__init__(parent)
         self.service, self.request_apply, self.show_detection = service, request_apply, show_detection
+        self.quick_wheel = quick_wheel
         self.cards = {}
         self.option_boxes = {}
         self._refresh_pending = False
@@ -42,21 +43,37 @@ class PluginsPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(14)
-        hint = QLabel("在游戏中显示辅助信息，不影响战报。设置对所有账号生效。")
+        hint = QLabel("管理游戏内辅助功能。显示与轮盘偏好保存在本机；重启和重连后按当前模式自动恢复。")
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color:{theme_color('#c9d1d9')}")
         layout.addWidget(hint)
 
         self._add_card(
-            layout, "cooldown", "技能冷却", "显示队伍技能倒计时和冷却遮罩。",
-            (("ready_cue", "E/Q 就绪提示"),),
+            layout, "cooldown", "技能冷却", "显示队伍技能图标、倒计时、冷却遮罩与原生就绪光效。",
+            (),
         )
         self._add_card(
             layout, "enemy_bars", "敌人状态", "显示敌人的战斗状态。",
             (("hp", "血量"), ("unbalance", "倾陷")),
         )
 
-        self.notice = QLabel("退出 Calc 后停止显示；下次启动时恢复已保存设置。")
+        if quick_wheel is not None:
+            wheel_card = QFrame()
+            wheel_card.setObjectName("card")
+            wheel_layout = QVBoxLayout(wheel_card)
+            self.wheel_toggle = QCheckBox("游戏内快捷轮盘")
+            self.wheel_status = QLabel()
+            wheel_hint = QLabel("按住 Tab 选择功能；指向木桩展开次轮盘，回中心返回。开启后替换原 Tab 轮盘，关闭后恢复。")
+            wheel_hint.setWordWrap(True)
+            wheel_layout.addWidget(self.wheel_toggle)
+            wheel_layout.addWidget(self.wheel_status)
+            wheel_layout.addWidget(wheel_hint)
+            layout.addWidget(wheel_card)
+            self.wheel_toggle.toggled.connect(self._toggle_wheel)
+            quick_wheel.changed.connect(self._refresh_wheel)
+            self._refresh_wheel()
+
+        self.notice = QLabel("关闭窗口后继续在后台运行；从托盘退出 Calc 才停止显示。")
         self.notice.setObjectName("pluginPageNotice")
         self.notice.setWordWrap(True)
         self.notice.setStyleSheet(f"color:{theme_color('#8b949e')};font-size:12px")
@@ -73,6 +90,22 @@ class PluginsPage(QWidget):
         layout.addLayout(actions)
         layout.addStretch()
         self.refresh()
+
+    def _toggle_wheel(self, enabled):
+        try:
+            self.quick_wheel.set_enabled(enabled)
+        except (OSError, RuntimeError, ValueError) as error:
+            QMessageBox.warning(self, "快捷轮盘", str(error))
+        self._refresh_wheel()
+
+    def _refresh_wheel(self):
+        if self.quick_wheel is None:
+            return
+        self.wheel_toggle.blockSignals(True)
+        self.wheel_toggle.setChecked(self.quick_wheel.enabled)
+        self.wheel_toggle.blockSignals(False)
+        self.wheel_toggle.setEnabled(self.service.policy.allowed("native_load") or self.quick_wheel.enabled)
+        self.wheel_status.setText(f"{self.quick_wheel.status} · 自有木桩 {self.quick_wheel.owned_count}")
 
     def _add_card(self, layout, key: str, title: str, description: str, fields) -> None:
         frame = QFrame()
@@ -111,7 +144,8 @@ class PluginsPage(QWidget):
             options.addWidget(box)
             boxes[field] = box
         options.addStretch()
-        card.addLayout(options)
+        if fields:
+            card.addLayout(options)
         self.cards[key] = toggle, status
         self.option_boxes[key] = boxes
         layout.addWidget(frame)
@@ -151,6 +185,7 @@ class PluginsPage(QWidget):
         status.style().polish(status)
 
     def refresh(self, result=None):
+        self._refresh_wheel()
         # 两张卡分别读取后验状态；设置已开不代表已显示，模式降级后仍允许关闭已开的卡。
         allowed = self.service.policy.allowed("native_load")
         settings = self.service.settings
@@ -181,7 +216,7 @@ class PluginsPage(QWidget):
         self.notice.setText(
             self.service.load_error
             or next((status for status in active_statuses if status not in known_statuses), "")
-            or ("退出 Calc 后停止显示；下次启动时恢复已保存设置。" if allowed else
+            or ("关闭窗口后继续在后台运行；从托盘退出 Calc 才停止显示。" if allowed else
                 "当前模式不支持插件；请切换到中风险或开发模式。")
         )
         if result is not None and self._refresh_pending:

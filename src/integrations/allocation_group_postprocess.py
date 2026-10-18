@@ -48,13 +48,16 @@ def _identity(value):
 
 
 def _request(request, *, axis):
-    expanded = request.get("version") == 2
+    joint = axis and request.get("version") == 3
+    expanded = request.get("version") in (2, 3)
     projected = not axis and expanded
     required = {"version", "objective", "input_identity", "allocation_request", "baseline_plans", "reserved_uids",
                 "role_character_ids", "budget", "neighborhood"}
     required |= {"battle_request", "anchor_mode", "equipment_value_mode", "baseline_equipment_by_character", "inventory_equipment_by_uid", "team_preflight"} if axis else {"projection_inputs"} if projected else {"role_models"}
+    if joint:
+        required.add("team_axes")
     objective = "frozen_axis_expected_v1" if axis else "standard_direct_v1"
-    if (set(request) != required or type(request["version"]) is not int or request["version"] != (2 if expanded else 1)
+    if (set(request) != required or type(request["version"]) is not int or request["version"] != (3 if joint else 2 if expanded else 1)
             or request["objective"] != objective
             or request["neighborhood"] != ("single_pair_exchange_blueprint" if expanded else "single_pair_exchange") or not _identity(request["input_identity"])):
         raise _error()
@@ -63,7 +66,7 @@ def _request(request, *, axis):
             or not budget.keys() <= {"max_evaluations", "max_rounds", "max_visits", "max_millis"}
             or not _integer(budget["max_evaluations"], 1, 100_000) or not _integer(budget["max_rounds"], 1, 1_000)
             or not _integer(budget.get("max_visits", 1_000_000), 1, 1_000_000)
-            or not _integer(budget.get("max_millis", 120_000), 1, 120_000)):
+            or not _integer(budget.get("max_millis", 120_000), 1, 600_000 if axis else 120_000)):
         raise _error()
     allocation = request["allocation_request"]
     if not isinstance(allocation, dict) or type(allocation.get("version")) is not int or allocation["version"] != 2:
@@ -87,6 +90,9 @@ def _request(request, *, axis):
             or any(not isinstance(uid, str) or not uid or len(uid.encode("utf8")) > 256 for uid in reserved)):
         raise _error()
     if axis:
+        if joint:
+            from src.integrations.team_axis_response import validate_team_axes
+            validate_team_axes(request)
         from src.integrations.axis_fixed_team import validate_preflight_proof
         validate_preflight_proof(request["team_preflight"])
         validate_axis_selector(request["battle_request"])
@@ -144,7 +150,7 @@ def _groups(value, request, expected, *, axis):
     result = []
     for index, group in enumerate(value):
         fields = GROUP_FIELDS | ({"enumeration_complete"} if axis else {"objective_value", "candidate_visits"})
-        if request["version"] == 2:
+        if request["version"] in (2, 3):
             fields |= {"blueprint_complete"}
         if (not isinstance(group, dict) or not fields <= group.keys() or type(group["group_index"]) is not int
                 or group["group_index"] != index or group["termination"] not in TERMINATIONS or not isinstance(group["reason"], str)):
@@ -224,8 +230,9 @@ def _native_layout(plans, roles):
 
 def _response(client, result, request, expected, *, axis):
     batch = AXIS_BATCH if axis else DIRECT_BATCH
-    fields = AXIS_FIELDS if axis else DIRECT_FIELDS
-    expanded = request["version"] == 2
+    fields = set(AXIS_FIELDS if axis else DIRECT_FIELDS)
+    joint = axis and request["version"] == 3
+    expanded = request["version"] in (2, 3)
     projected = not axis and expanded
     if expanded:
         fields |= {"budget_policy", "elapsed_millis"}
@@ -276,10 +283,10 @@ def _response(client, result, request, expected, *, axis):
     output = {key: deepcopy(result[key]) for key in ("schema_version", "engine_version", "dataset_version", "batch_kind", "version", "input_identity", "plans")}
     if axis:
         if (result.get("model_id") != model or result.get("equipment_value_mode") != "actual_level"
-                or result.get("critical_policy") != CRITICAL_POLICY or result.get("ordering_policy") != "previous_single_exact_delta_then_uid"
+                or result.get("critical_policy") != CRITICAL_POLICY or result.get("ordering_policy") not in {"previous_single_exact_delta_then_uid", "exact_then_damage_weighted_delta_then_uid", "interleaved_exact_delta_score_then_uid"}
                 or result.get("neighborhood") != ("single_pair_exchange_blueprint" if expanded else "single_pair_exchange_fixed_signature") or value["shared_value"] is not True
-                or value["team_event_scope"] != "all_frozen_axis_events_v1"
-                or value["selection_policy"] != "whole_team_best_move_v1" or not isinstance(value["reason"], str)
+                or value["team_event_scope"] != ("independent_frozen_team_axes_v1" if joint and result.get("team_reports") else "all_frozen_axis_events_v1")
+                or value["selection_policy"] != ("equal_team_relative_gain_v1" if joint and result.get("team_reports") else "whole_team_best_move_v1") or not isinstance(value["reason"], str)
                 or not _integer(value["improvements"], 0, value["rounds"]) or not _integer(value["unquantified_candidates"])
                 or not isinstance(value["gaps"], dict) or any(not isinstance(k, str) or not k or not _integer(v, 1) for k, v in value["gaps"].items())):
             raise _error()
@@ -291,7 +298,10 @@ def _response(client, result, request, expected, *, axis):
         if value["termination"] == "local_optimum" and (value["unquantified_candidates"] or value["gaps"]):
             raise _error()
         selected = result.get("selected_result")
-        if result.get("frozen_identity") is None:
+        if joint:
+            from src.integrations.team_axis_response import decode_team_facts
+            facts, output["team_reports"] = decode_team_facts(result, request)
+        elif result.get("frozen_identity") is None:
             if (value["termination"] != "not_ready" or any(result.get(k) is not None for k in ("scope", "baseline", "selected_result", "source_input_digest"))
                     or result["plans"] != request["baseline_plans"]):
                 raise _error()
@@ -323,6 +333,8 @@ def postprocess_allocation_groups(client, request: Mapping, *, axis=False, check
     client._checkpoint(checkpoint)
     if not getattr(client, "supports_battle_axis_group_postprocess" if axis else "supports_allocation_group_postprocess", False):
         raise NativeAnalysisError("多组装备优化组件未就绪，请更新配套分析组件")
+    if axis and request.get("version") == 3 and not getattr(client, "supports_battle_axis_joint_teams", False):
+        raise NativeAnalysisError("分析组件缺少双队联合优化能力，请更新配套组件")
     if request.get("version") == 2 and not getattr(client,
             "supports_battle_axis_group_rematch" if axis else "supports_allocation_group_projection", False):
         raise NativeAnalysisError("多组优化组件缺少扩展图纸与原生布局能力，请更新配套分析组件")

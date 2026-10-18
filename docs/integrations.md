@@ -516,6 +516,8 @@ close API、不将清引用当作强制中断，也不据此承诺全部旧截�
 | UETools | 游戏侧宿主、插件、SDK 适配及原生证据采集 | 受限 Release 候选交私有集成方；工具 UI、MCP、Dumper 与开发材料不进入 Calc |
 | UnrealExporter 与 Dumper 输出 | 静态导出来源、运行时映射与 SDK 研究材料 | 分别走静态构建或原生开发核验；不是 Calc 可直接分发的组件目录 |
 
+快捷轮盘配套在 v3 角色表中增加 `training_plugin` 与 `training_signature`，两项成套声明且绑定保护元数据；旧五 DLL 包仍可核对，但不声明轮盘能力。新 Core 通过现有原生连接提供 `native_quick_wheel_v2`。
+
 原生交付顺序为 UETools 受限候选 → 私有集成方配套 Core/Loader 与能力核对 → Calc 的
 `third_party/native-capture/component-bundle.json` → 打包暂存 → 游戏部署 → 实机验收。
 静态导出与分析组件分别走本节以外的独立入口，不混入这条原生组件链。
@@ -534,7 +536,7 @@ UETools 的 `tools/build_calc_host.py` 构建受限宿主及签名插件候选�
 
 VMP 保护策略、精确函数选择与构建失败条件由 UETools 的 `docs/vmprotect_release.md`、
 `build/vmprotect_functions.json` 和 `tools/protect_release.py` 维护；Calc 不复制另一份函数名单。
-普通 Release 对本方交付 DLL 按其配置执行保护，Debug 与 DeveloperRelease 不执行。当前工作区随附 v3 候选的五个 DLL 均已通过 VMP 构建和保护回执核验：D3D 整文件打包与资源保护，其余为选定函数保护；具体文件身份以组件清单为准。
+普通 Release 对本方交付 DLL 按其配置执行保护，Debug 与 DeveloperRelease 不执行。当前 v3 交付策略要求全部声明的 DLL 均按精确函数清单保护并移除调试信息；D3D 不启用整文件打包与资源保护。具体文件身份与验证状态以随附组件清单和配套说明为准。
 
 每个 DLL 编入标准 JSON 授权声明；中文为 Unicode 转义，组件身份及声明副本由保护回执和整包哈希绑定。它不是只供 AI 解读的编码，也不代替运行权限。精确字段和读取边界见 UETools 的 `docs/component_notice.md`。
 
@@ -740,6 +742,8 @@ $takeover = @{ Profile=$profile; ProfileSha256=$profileSha; TargetRoot=$target;
 改写候选。
 禁止直接构建到 `data/`、手工复制候选或只修改 manifest；晋升失败仍视为未完成。静态库和
 `data/manifest.json` 作为同一次晋升产生的原子变更审查，改变规范化输出的 importer 修改必须递增版本。
+Blueprint 依赖表排除包内 Outer、ClassDefaultObject、Children 和 FuncMap 的重复自引用；完整来源仍按文件哈希登记，Properties、Super、Template 及跨包引用保留。弧盘入口位于 Calculation 目录时，沿正式 ExecGEs 引用闭包导入带 Buff 属性的子资源；深渊曲线同时进入公共 combat_curve，赛季组件与底层 Buff 求值使用同版来源。
+
 解包后的 `Content` 目录只作为登记来源输入，不按目录做数据库全量覆盖；弧盘常驻属性由已规范化的
 `fork_star_parameter`、精炼曲线、Buff Modifier、施加条件和标签证据重新投影。完整重建继续要求登记的
 DataTable、本地化与 Blueprint 来源闭包；仅需验证解析器或更新候选投影时，维护工具

@@ -6,7 +6,7 @@ from src.domain.plugin_settings import PluginSettings
 
 
 _PLUGIN_FIELDS = {
-    "cooldown": frozenset({"cooldown", "ready_cue"}),
+    "cooldown": frozenset({"cooldown"}),
     "enemy_bars": frozenset({"enemy_bars", "hp", "unbalance"}),
 }
 

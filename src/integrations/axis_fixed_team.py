@@ -90,6 +90,16 @@ def resolve_fixed_team(client, selector, selected_character_ids, anchor_mode, in
         elif (reserved or members or result["fixed_build_sha256"] is not None
                 or not isinstance(result["fixed_reason"], str) or not result["fixed_reason"]):
             raise ValueError("partial fixed proof")
+        ranks = result.get("damage_priority_groups")
+        if ranks is not None:
+            if (not isinstance(ranks, list) or len(ranks) != 4
+                    or any(not isinstance(group, list) for group in ranks)
+                    or result.get("damage_priority_reason") is not None):
+                raise ValueError("damage ranks")
+            ids = [cid for group in ranks for cid in group]
+            if (any(type(cid) is not int for cid in ids) or len(ids) != len(set(ids))
+                    or sorted(ids) != result["team_character_ids"]):
+                raise ValueError("damage rank identities")
     except (ValueError, TypeError, KeyError) as error:
         raise NativeAnalysisError("固定队友响应与冻结输入不一致") from error
     return deepcopy(result)

@@ -30,7 +30,8 @@ _REASONS = {
     "non_positive_or_unavailable_baseline": "基础伤害为零或缺少计算依据，暂不计算提升比例。",
     "axis_group_member_unmapped": "同级组中有角色尚未关联正式角色身份。",
     "axis_group_member_not_in_report": "同级组中有角色不在所选战报中，请调整角色组或选择其他战报。",
-    "axis_baseline_not_ready": "所选战报的基础配装尚未得到完整伤害估算，请先检查战报分析缺项。",
+    "axis_baseline_not_ready": "所选战报暂时没有可用于比较装备的伤害部分，请检查战报分析缺项。",
+    "outer_realm_recipient_evidence_missing": "赛季环合增益缺少受益角色或生效区间证据，本次装备变化的轴伤收益暂不能确认；已保留基础配装。",
 }
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +76,31 @@ def _percentage(ratio: float) -> str | None:
     return f"{scaled:+.2f}%" if math.isfinite(scaled) else None
 
 
+def _coverage_note(value) -> str:
+    if not isinstance(value, Mapping) or value.get("policy") != "available_fixed_domain_v1":
+        return ""
+    keys = ("basis_damage", "quantified_damage", "estimated_damage", "excluded_damage")
+    if not all(_number(value.get(k)) for k in keys) or value["basis_damage"] <= 0:
+        return ""
+    total = value["basis_damage"]
+    if not math.isclose(sum(value[k] for k in keys[1:]), total, rel_tol=1e-9, abs_tol=1e-9):
+        return ""
+    strict, estimated, excluded = (value[k] / total * 100 for k in keys[1:])
+    return (f"计分覆盖 {strict + estimated:.1f}%：已量化（含已证实不变）{strict:.1f}%、估算 {estimated:.1f}%；"
+            f"未计入 {excluded:.1f}%。")
+
+
 def damage_optimization_presentation(value) -> DamageOptimizationPresentation | None:
+    presentation = _damage_presentation(value)
+    priority = value.get("baseline_priority") if isinstance(value, Mapping) else None
+    if presentation is not None and isinstance(priority, Mapping):
+        from dataclasses import replace
+        note = priority.get("reason") or "基础配装按队内已观测出伤名次生成，两队同名次并列；使用本次背包。"
+        presentation = replace(presentation, note=presentation.note + "\n" + str(note))
+    return presentation
+
+
+def _damage_presentation(value) -> DamageOptimizationPresentation | None:
     if not isinstance(value, Mapping) or not value:
         return None
     objective = value.get("objective")
@@ -83,6 +108,20 @@ def damage_optimization_presentation(value) -> DamageOptimizationPresentation | 
     if not isinstance(objective, str) or objective not in {"frozen_axis_expected_v1", "standard_direct_v1"}:
         return DamageOptimizationPresentation("优化结果待核对", "目标类型未知，请重新计算。", "旧记录保留，不按当前模型重新解释。")
     label = "轴伤优先" if axis else "直伤优先"
+    coverage_note = _coverage_note(value.get("coverage")) if axis else ""
+    if axis and value.get("coverage") is not None and not coverage_note:
+        return DamageOptimizationPresentation("轴伤覆盖率待核对", "覆盖率记录异常，请重新计算。", "未将部分目标当作完整全队收益展示。")
+    coverage_brief = ""
+    if coverage_note:
+        c = value["coverage"]
+        strict = c["quantified_damage"] / c["basis_damage"] * 100
+        estimated = c["estimated_damage"] / c["basis_damage"] * 100
+        coverage_brief = f" · 计分 {strict + estimated:.1f}%（量化 {strict:.1f}%＋估算 {estimated:.1f}%）"
+
+    if value.get("result_kind") == "baseline" and value.get("status") == "baseline_only":
+        reason = _explain_reason(str(value.get("reason") or "伤害优化尚未完成。"))
+        return DamageOptimizationPresentation("基础配装｜可保存" + coverage_brief, " ".join(filter(None, (reason, coverage_note))),
+            "保留本次角色优先生成的合法配装；未宣称伤害提升，可直接保存，无需重新计算。")
     event_scope = value.get("scope") or {}
     excluded = event_scope.get("excluded_unscoped_event_count", 0) if isinstance(event_scope, Mapping) else 0
     warning = f"已排除 {excluded} 击半场归属不明的记录，原战报保留。" if axis and type(excluded) is int and excluded > 0 else ""
@@ -98,11 +137,13 @@ def damage_optimization_presentation(value) -> DamageOptimizationPresentation | 
             f"{label}｜{state}", reason,
             "\n".join(filter(None, (warning, "如需保存基础配装，请切回角色优先重新计算。"))),
         )
+    if value.get("team_reports"):
+        return _joint_team_presentation(value)
     before, after = value.get("baseline_value"), value.get("candidate_value")
     if not _number(before) or not _number(after) or after < before:
         return DamageOptimizationPresentation(f"{label}｜结果待核对", "收益记录异常，请重新计算。", "未用缺失值、负值或非有限数伪造提升。")
     change = after - before
-    metric = "全队轴伤估算" if axis else "标准直伤指标"
+    metric = ("参与计分部分轴伤" if coverage_note else "全队轴伤估算") if axis else "标准直伤指标"
     if change > 0:
         ratio = change / before if before > 0 else None
         gain = _percentage(ratio) if ratio is not None and math.isfinite(ratio) else None
@@ -114,12 +155,16 @@ def damage_optimization_presentation(value) -> DamageOptimizationPresentation | 
     else:
         headline = f"{label}｜本轮未找到提升"
     termination = str(value.get("termination") or "")
-    complete = termination == "local_optimum" and value.get("neighborhood_complete") is True
+    blueprint_limited = (value.get("blueprint_usage") or {}).get("complete") is False
+    complete = termination == "local_optimum" and value.get("neighborhood_complete") is True and not blueprint_limited
     if not complete:
         headline += " · 搜索未完成"
     if warning:
         headline += f" · 排除 {excluded} 击归属不明记录"
+    headline += coverage_brief
     note = f"对比本次角色优先：{_amount(before)} → {_amount(after)}。"
+    if coverage_note:
+        note += " " + coverage_note
     # 页面只保留口径、停止原因与必要限制；计数、组件哈希和诊断代码仍保存在原元数据。
     scope = ("口径：所选战报事件的全队估算，按本次整队配装计算；各角色显示同一值，请勿相加。" if axis else
              "口径：标准攻击估算（卡带按满级），不代表实战伤害。")
@@ -132,7 +177,13 @@ def damage_optimization_presentation(value) -> DamageOptimizationPresentation | 
         search = "固定布局的单件及同角色双件替换未找到进一步提升。" if paired else "固定布局的单件替换未找到进一步提升。"
     else:
         search = _TERMINATIONS.get(termination, "本轮搜索尚未完成，可能还有更好的配装。")
+    if coverage_note:
+        scope = "口径：同一批可计分伤害的全队目标，包含明确标注的机制估算；其余伤害未参与装备比较。各角色显示同一值，请勿相加。"
     details = [scope, "搜索：" + search + "不保证全局最优。"]
+    if coverage_note:
+        details.append("覆盖率按原战报伤害量计算，不是命中次数或预测准确率；未计入部分的换装收益未知。")
+    if blueprint_limited:
+        details.append("图纸枚举达到预算，仅搜索本次已生成并验证的布局；当前合法结果仍可保存。")
     if warning:
         details.insert(0, warning)
     if axis and isinstance(event_scope, Mapping) and event_scope.get("settlement_profile_character_count", 0):
@@ -146,3 +197,36 @@ def damage_optimization_summary(value) -> str:
     """保留纯文本入口；首屏只展示结论与必要限制，完整口径由详情承载。"""
     presentation = damage_optimization_presentation(value)
     return "\n".join((presentation.headline, presentation.note)) if presentation else ""
+
+
+def _joint_team_presentation(value):
+    reports = value.get("team_reports")
+    before, after = value.get("baseline_value"), value.get("candidate_value")
+    if (not isinstance(reports, list) or len(reports) != 2 or not _number(before) or before != 1
+            or not _number(after) or after < 1):
+        return DamageOptimizationPresentation("双队收益待核对", "归一化记录异常，请重新计算。", "")
+    lines = []
+    ratios = []
+    for index, report in enumerate(reports, 1):
+        if (not isinstance(report, Mapping) or not isinstance(report.get("baseline"), Mapping)
+                or not isinstance(report.get("selected_result"), Mapping)):
+            return DamageOptimizationPresentation("双队收益待核对", "战报计分记录异常，请重新计算。", "")
+        baseline = report.get("baseline", {}).get("candidate_value")
+        candidate = report.get("selected_result", {}).get("candidate_value")
+        if not _number(baseline) or baseline <= 0 or not _number(candidate):
+            return DamageOptimizationPresentation("双队收益待核对", "战报计分记录异常，请重新计算。", "")
+        ratio = candidate / baseline - 1
+        if not math.isfinite(ratio):
+            return DamageOptimizationPresentation("双队收益待核对", "战报增幅超出可展示范围。", "")
+        ratios.append(ratio)
+        coverage = _coverage_note(report.get("selected_result", {}).get("coverage"))
+        lines.append(f"队伍 {index} · 战报 #{report.get('battle_record_id')}：计分部分 {ratio:+.2%}。" + coverage)
+    if not math.isclose(sum(ratios) / 2, after - 1, rel_tol=1e-9, abs_tol=1e-9):
+        return DamageOptimizationPresentation("双队收益待核对", "综合增幅与两队结果不一致。", "")
+    headline = f"双队综合增幅 {after - 1:+.2%}"
+    if value.get("neighborhood_complete") is not True:
+        headline += " · 搜索未完成"
+    return DamageOptimizationPresentation(headline, "\n".join(lines),
+        "两份战报各以本次基础配装的计分伤害为 100，综合增幅为两队相对增幅的等权平均。"
+        "各队独立冻结计分范围，未计入伤害的收益未知；覆盖率不是准确率。"
+        "队伍之间允许收益取舍，关联成员须一起保存。各成员展示同一综合结果，请勿相加。搜索不保证全局最优。", after > 1)

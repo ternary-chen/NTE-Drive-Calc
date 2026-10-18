@@ -202,6 +202,17 @@ class BattleReportController(
         service = self._service
         return bool(service is not None and service.is_running)
 
+    def quick_capture_state(self) -> int:
+        """轮盘只读取已确认采集状态；停止保存期间不能当作可再次开始。"""
+        state = self._latest_state
+        if state.phase == 'error':
+            return 4
+        if not self.is_running():
+            return 0
+        if self._manual_stop_requested:
+            return 3
+        return 2 if state.phase == 'running' else 1
+
     def stop(self) -> None:
         self._manual_stop_requested = True
         self._stop_battle_hotkeys()

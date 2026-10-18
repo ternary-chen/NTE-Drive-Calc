@@ -19,8 +19,9 @@ from src.domain.battle_report.analysis.backend_contracts import BuffProjectionBa
 
 REQUEST_SCHEMA = "nte-analysis-request-v1"
 RESPONSE_SCHEMA = "nte-analysis-response-v1"
-ENGINE_VERSION = "0.3.0"
-SUPPORTED_ENGINE_VERSIONS = frozenset({"0.2.0", ENGINE_VERSION})
+ENGINE_VERSION = "0.3.7"
+CURRENT_PROTOCOL_ENGINE_VERSIONS = frozenset({"0.3.0", "0.3.1", "0.3.2", "0.3.3", "0.3.4", "0.3.5", "0.3.6", ENGINE_VERSION})
+SUPPORTED_ENGINE_VERSIONS = CURRENT_PROTOCOL_ENGINE_VERSIONS | {"0.2.0"}
 MAX_BYTES = 64 * 1024 * 1024
 MAX_JOBS = 100_000
 
@@ -110,15 +111,15 @@ class NteAnalysisCoreClient:
             raise ValueError("分析核心版本不受支持")
         self.engine_version = engine_version
         self.supports_projection_plan = (
-            engine_version == ENGINE_VERSION
+            engine_version in CURRENT_PROTOCOL_ENGINE_VERSIONS
             and (capabilities is None or "buff_projection_plan_v1" in capabilities)
         )
         self.supports_battle_compute = (
-            engine_version == ENGINE_VERSION
+            engine_version in CURRENT_PROTOCOL_ENGINE_VERSIONS
             and (capabilities is None or "battle_compute_v1" in capabilities)
         )
         self.supports_battle_page = (
-            engine_version == ENGINE_VERSION
+            engine_version in CURRENT_PROTOCOL_ENGINE_VERSIONS
             and capabilities is not None and "battle_page_v1" in capabilities
         )
         self.supports_battle_progress = (
@@ -137,9 +138,10 @@ class NteAnalysisCoreClient:
             and capabilities is not None and "battle_topple_composition_v1" in capabilities
         )
         self.supports_allocation = (
-            engine_version == ENGINE_VERSION
+            engine_version in CURRENT_PROTOCOL_ENGINE_VERSIONS
             and capabilities is not None and "allocation_v2" in capabilities
         )
+        self.supports_axis_deep_search = capabilities is not None and "battle_axis_deep_search_v1" in capabilities
         self.supports_damage_allocation_job = (
             self.supports_allocation and capabilities is not None and "damage_allocation_v1" in capabilities
         )
@@ -147,7 +149,7 @@ class NteAnalysisCoreClient:
             self.supports_allocation and capabilities is not None and "equipment_scoring_v1" in capabilities
         )
         self.supports_blueprints = (
-            engine_version == ENGINE_VERSION
+            engine_version in CURRENT_PROTOCOL_ENGINE_VERSIONS
             and capabilities is not None and "allocation_blueprints_v1" in capabilities
         )
         self.supports_allocation_group_postprocess = (
@@ -164,24 +166,27 @@ class NteAnalysisCoreClient:
             self.supports_battle_axis_group_postprocess and capabilities is not None
             and "battle_axis_group_postprocess_v2" in capabilities
         )
+        self.supports_battle_axis_joint_teams = (
+            self.supports_battle_axis_group_rematch and "battle_axis_group_postprocess_v3" in capabilities
+        )
         self.supports_allocation_postprocess = (
-            engine_version == ENGINE_VERSION
+            engine_version in CURRENT_PROTOCOL_ENGINE_VERSIONS
             and capabilities is not None and "allocation_postprocess_v1" in capabilities
         )
         self.supports_battle_axis_team = (
-            engine_version == ENGINE_VERSION
+            engine_version in CURRENT_PROTOCOL_ENGINE_VERSIONS
             and capabilities is not None and "battle_axis_team_v1" in capabilities
         )
         self.supports_battle_axis_fixed_team = (
-            engine_version == ENGINE_VERSION
+            engine_version in CURRENT_PROTOCOL_ENGINE_VERSIONS
             and capabilities is not None and "battle_axis_fixed_team_v1" in capabilities
         )
         self.supports_battle_axis_evaluation = (
-            engine_version == ENGINE_VERSION
+            engine_version in CURRENT_PROTOCOL_ENGINE_VERSIONS
             and capabilities is not None and "battle_axis_evaluate_v1" in capabilities
         )
         self.supports_battle_axis_postprocess = (
-            engine_version == ENGINE_VERSION
+            engine_version in CURRENT_PROTOCOL_ENGINE_VERSIONS
             and capabilities is not None and "battle_axis_postprocess_v1" in capabilities
         )
         self.supports_native_payload_fragments = (
@@ -386,7 +391,8 @@ class NteAnalysisCoreClient:
                                     (self.supports_allocation_group_postprocess, "allocation_group_postprocess_v1"),
                                     (self.supports_allocation_group_projection, "allocation_group_postprocess_v2"),
                                     (self.supports_battle_axis_group_postprocess, "battle_axis_group_postprocess_v1"),
-                                    (self.supports_battle_axis_group_rematch, "battle_axis_group_postprocess_v2")):
+                                    (self.supports_battle_axis_group_rematch, "battle_axis_group_postprocess_v2"),
+                                    (self.supports_battle_axis_joint_teams, "battle_axis_group_postprocess_v3")):
             if enabled and capability not in value.get("capabilities", []):
                 raise NativeAnalysisError("独立分析核心缺少冻结多组装备优化能力")
         return value
@@ -487,7 +493,8 @@ class NteAnalysisCoreClient:
             raise NativeAnalysisError("分析组件尚不支持数据库直读，请部署对应版本")
         started = time.perf_counter()
         request = dict(request)
-        if self.supports_native_payload_fragments and request.get("detail_level") != "identity":
+        # 编辑事实没有逐击载荷；附加分片字典会破坏其严格的独立响应契约。
+        if self.supports_native_payload_fragments and request.get("detail_level") not in {"identity", "editor"}:
             request["native_payload_encoding"] = "fragments_v1"
         payload = json.dumps({
             "schema_version": REQUEST_SCHEMA, "batch_kind": "battle_page_v1",

@@ -483,10 +483,10 @@ class RoleSelectorPreferencesMixin:
     def get_priority_groups(self):
         return links_to_priority_groups(self.selected, self.priority_links)
 
-    def get_custom_sets(self):
+    def get_custom_sets(self, roles=None):
         return {
             name: self.custom_sets.get(name)
-            for name in self.selected
+            for name in (self.selected if roles is None else roles)
             if self.custom_sets.get(name)
         }
 
@@ -512,9 +512,9 @@ class RoleSelectorPreferencesMixin:
             if self.stat_priority_configs.get(name)
         }
 
-    def get_tape_main_filters(self):
+    def get_tape_main_filters(self, roles=None):
         filters = {}
-        for name in self.selected:
+        for name in (self.selected if roles is None else roles):
             effective = (
                 self.tape_main_filters.get(name, [])
                 if name in self.tape_main_filter_override_roles
@@ -524,16 +524,16 @@ class RoleSelectorPreferencesMixin:
                 filters[name] = list(effective)
         return filters
 
-    def get_custom_weapons(self):
+    def get_custom_weapons(self, roles=None):
         return {
             name: weapon
-            for name in self.selected
+            for name in (self.selected if roles is None else roles)
             if (weapon := self._effective_weapon_for_role(name))
         }
 
-    def get_crit_rate_caps(self):
+    def get_crit_rate_caps(self, roles=None):
         caps = {}
-        for name in self.selected:
+        for name in (self.selected if roles is None else roles):
             configured_cap = self.crit_rate_caps.get(name)
             cap_source = self.crit_rate_cap_sources.get(name)
             if cap_source == "automatic":
@@ -552,9 +552,9 @@ class RoleSelectorPreferencesMixin:
                 caps[name] = float(cap)
         return caps
 
-    def get_crit_priority_modes(self):
+    def get_crit_priority_modes(self, roles=None):
         configs = {}
-        for name in self.selected:
+        for name in (self.selected if roles is None else roles):
             default = self._default_substat_priority(name)
             effective = self.stat_priority_configs.get(name)
             if effective:
@@ -563,10 +563,10 @@ class RoleSelectorPreferencesMixin:
                 configs[name] = {"stats": list(default)}
         return configs
 
-    def get_set_effect_modes(self):
+    def get_set_effect_modes(self, roles=None):
         return {
             name: normalize_set_effect_mode(self.set_effect_modes.get(name))
-            for name in self.selected
+            for name in (self.selected if roles is None else roles)
             if normalize_set_effect_mode(self.set_effect_modes.get(name)) != FOUR_PIECE
         }
 

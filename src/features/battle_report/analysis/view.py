@@ -433,7 +433,14 @@ class BattleLongAnalysisView(
         self.timeline.set_time_mode(self._time_mode)
         self._focus_selected_timeline_range()
         self._render_time_presentation()
-        self.capability_label.hide()
+        if analysis.discarded_attempt_hit_count:
+            self.capability_label.setText(
+                f"已排除作废尝试：{analysis.discarded_attempt_hit_count} 次攻击、"
+                f"{analysis.discarded_attempt_damage:,.0f} 伤害；原始记录保留，当前统计与分析不计入。"
+            )
+            self.capability_label.show()
+        else:
+            self.capability_label.hide()
         self._render_damage_composition()
         self._render_roles()
         self._log_page = 0

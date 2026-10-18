@@ -24,7 +24,7 @@ def optimization_payload(plan: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         return {}
     from src.integrations.axis_allocation_postprocess import OPTIMIZATION_FIELDS as AXIS_FIELDS
-    allowed = OPTIMIZATION_FIELDS | AXIS_FIELDS | {"status", "input_identity", "source_snapshot_id", "dataset_id",
+    allowed = OPTIMIZATION_FIELDS | AXIS_FIELDS | {"status", "result_kind", "fallback_status", "coverage", "team_reports", "baseline_priority", "input_identity", "source_snapshot_id", "dataset_id",
                                      "character_id", "owners_sha256", "engine_version",
                                      "component_executable_sha256", "component_manifest_sha256", "equipment_value_mode", "allocation_character_ids", "ownership_excluded_character_ids",
                                      "source_input_digest", "fixed_team_build_sha256", "fixed_team_members", "frozen_identity", "scope", "battle_record_id", "anchor_mode", "critical_policy",
@@ -43,7 +43,7 @@ def verify_direct_postprocess_ownership(dao, rows, *, dataset_id=None) -> None:
                          or (dataset_id is not None and metadata.get("dataset_id") != dataset_id)):
             raise RuntimeError("直伤优化目标与冻结方案身份不一致，请重新计算。")
         if metadata and metadata.get("status") != "completed":
-            raise RuntimeError("直伤优化未完成，请按角色优先重新计算后保存基础方案。")
+            raise RuntimeError("未持有本次基础配装的冻结保存凭证，不能保存未验证结果。")
         expected = metadata.get("owners_sha256")
         for key in ("component_executable_sha256", "component_manifest_sha256"):
             source = metadata.get(key)

@@ -27,11 +27,12 @@ def damage_optimization_panel(value, *, object_name: str, parent=None):
     layout.addLayout(header)
     headline = QLabel(presentation.headline, panel)
     headline.setTextFormat(Qt.PlainText)
+    headline.setWordWrap(True)
     headline.setToolTip(presentation.note)
     color = "#3fb950" if presentation.improved else "#d29922"
     headline.setStyleSheet(themed_style(f"color:{color};font-weight:700;font-size:13px;"
                                        "border:none;background:transparent;padding:0;margin:0"))
-    header.addWidget(headline)
+    header.addWidget(headline, 1)
     toggle = QToolButton(panel)
     toggle.setText("查看详情")
     toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
@@ -46,7 +47,7 @@ def damage_optimization_panel(value, *, object_name: str, parent=None):
     ))
     header.addWidget(toggle)
     header.addStretch()
-    # 默认只占一行；适用范围和原因随详情向下展开，搜索未完成等状态仍保留在摘要。
+    # 默认展示收益、量化/估算覆盖率并按可用宽度换行；完整口径和原因随详情展开。
     details = QLabel(presentation.note + "\n" + presentation.details, panel)
     details.setTextFormat(Qt.PlainText)
     details.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)

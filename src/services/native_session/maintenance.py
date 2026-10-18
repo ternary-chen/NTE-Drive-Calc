@@ -21,6 +21,8 @@ class NativeSessionMaintenance:
             inventory = owner._inventory_lease
             if inventory is not None and inventory.maintenance_blocked:
                 raise NteCoreError(inventory.maintenance_description)
+            if getattr(owner, '_quick_wheel_active', False):
+                raise NteCoreError('请先关闭游戏内快捷轮盘，再更新插件。')
             owner._maintenance.set()
         finally:
             owner._lock.release()
@@ -62,7 +64,7 @@ def plugin_maintenance(owner):
         with owner._lock:
             if (owner._maintenance.is_set() or owner._lease is not None or owner._inventory_lease is not None
                     or owner._refresh_active is not None or owner._battle_requested.is_set()
-                    or owner._performance_active or owner._performance_owner is not None or owner._performance_trace_active or (owner._hud_applied and any(owner._hud_applied[1].values()))):
+                    or getattr(owner, "_quick_wheel_active", False) or owner._performance_active or owner._performance_owner is not None or owner._performance_trace_active or (owner._hud_applied and any(owner._hud_applied[1].values()))):
                 raise NteCoreError('请先停止同步、战报、HUD 和性能显示，再更新组件。')
             owner._maintenance.set()
             try:

@@ -12,4 +12,4 @@ def role_preference_mode_error(strategy: str, tape_main_filters=None, crit_prior
 
 def allocation_strategy_for_button(button_id: int) -> str:
     """Stable old button IDs keep their meanings when a postprocess option is added."""
-    return {0: "role_priority", 1: "update_mode", 2: "direct_priority", 3: "axis_priority"}.get(button_id, "role_priority")
+    return {0: "role_priority", 1: "update_mode", 2: "direct_priority"}.get(button_id, "role_priority")

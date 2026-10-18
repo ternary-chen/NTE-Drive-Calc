@@ -514,7 +514,7 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
                     return None
         return 0.0
 
-    def get_crit_rate_baselines(self):
+    def get_crit_rate_baselines(self, roles=None):
         """为本次最小暴击率检查投影非装备加成。
 
         求解器已有基础 5% 与所选装备；这里只计有效弧盘常驻（含养成）和好感一次，
@@ -523,7 +523,7 @@ class RoleSelector(RoleSelectorPreferencesMixin, QWidget):
 
         return {
             name: round(crit_rate + self._likeability_crit_rate(name) * 100.0, 4)
-            for name in self.selected
+            for name in (self.selected if roles is None else roles)
             if (
                 crit_rate := self._active_fork_crit_rate(
                     name, self._effective_weapon_for_role(name)

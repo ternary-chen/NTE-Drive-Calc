@@ -54,6 +54,13 @@ def test_full_job_rejects_forged_score_or_plan_and_changed_frozen_constraints(tm
                 tape_main_filters={"灵可": ["攻击力%"]}, crit_rate_baselines=case["crit_baselines"])
 
     request, scorer = capture["request"], capture["scorer"]
+    partial = deepcopy(capture["result"])
+    partial["blueprints"].update(complete=False, termination="node_budget")
+    decoded = _decode(client, request, scorer, capture["sent"], partial, axis=False)[2]
+    assert decoded.facts["blueprint_usage"]["complete"] is False
+    partial["blueprints"]["complete"] = True
+    with pytest.raises(NativeAnalysisError):
+        _decode(client, request, scorer, capture["sent"], partial, axis=False)
     terminal = deepcopy(capture["result"])
     terminal["elapsed_millis"] = capture["sent"]["max_millis"] + 1
     assert _decode(client, request, scorer, capture["sent"], terminal, axis=False)[2].response is not None

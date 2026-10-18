@@ -23,6 +23,7 @@ NAV_ITEMS = (
     NavItem("execute", "⚡  计算", "btn_exec", "_page_execute", "_refresh_execute"),
     NavItem("equipment", "💎  配装", "btn_equip", "_page_equipment", "_refresh_equip"),
     NavItem("my_role", "👤  角色", "btn_my_role", "_page_my_role", "_refresh_my_role"),
+    NavItem("teams", "👥  队伍", "btn_teams", "team_controller", "refresh"),
     NavItem("warehouse", "📦  仓库", "btn_warehouse", "_page_warehouse", "_refresh_warehouse"),
     NavItem(
         "identify",

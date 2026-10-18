@@ -324,15 +324,16 @@ def _build_strategy_card(window, layout):
         window._open_allocation_filter_settings
     )
     header.addWidget(window.allocation_filter_settings_button)
-    header.addStretch(1)
     strategy_card.layout().addLayout(header)
+    from src.features.allocation.team_axis_controls import build_team_axis_controls
+    build_team_axis_controls(window, header, strategy_card.layout())
+    header.addStretch(1)
 
     window.strategy_group = QButtonGroup()
     strategy_options = [
         "角色优先 — 按角色顺序配装，优先照顾前排角色",
         "锁定更新 — 锁定所有计算配装，只用其他装备分配",
         "直伤优先 — 先完成配装，再替换装备提升标准直伤",
-        "战报轴伤优先 — 按所选战报，提升全队轴伤估算",
     ]
     for index, text in enumerate(strategy_options):
         rb = QRadioButton(text)

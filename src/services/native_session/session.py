@@ -16,6 +16,7 @@ from src.services.inventory.sync.capture_wait import InventorySyncCancelled
 from src.services.native_session.inventory import require_current_sync_revision
 from src.services.native_session.inspection import _inspect_snapshot
 from src.services.native_session.inspection import NativeStatusQueries
+from src.services.native_session.quick_wheel import exchange_quick_wheel
 from src.services.native_session.performance_control import configure_performance, read_performance_status, control_performance_trace
 from src.services.native_session.maintenance import plugin_maintenance, reserve_plugin_maintenance
 from src.observability import OperationContext, log_event
@@ -41,6 +42,8 @@ class NativeGameSession:
         self._diagnostics_enabled = diagnostics_enabled
         self._diagnostics_applied = None
         self._hud_applied = None
+        self._quick_wheel_active = False
+        self._quick_wheel_client = None
         self._performance_active = False
         self._performance_owner = None
         self._performance_trace_active = False
@@ -63,6 +66,9 @@ class NativeGameSession:
         self._battle_requested = Event()
         self._maintenance = Event()
         self._baseline = NativeSnapshotBaseline()
+
+    def exchange_quick_wheel(self, payload, context_key):
+        return exchange_quick_wheel(self, payload, context_key)
 
     def read_performance_status(self):
         return read_performance_status(self)
@@ -473,7 +479,7 @@ class NativeGameSession:
         try:
             with self._lock:
                 if (self._client is None or self._lease is not None or self._inventory_lease is not None
-                        or self._refresh_active is not None or self._battle_requested.is_set() or self._performance_active or self._performance_owner is not None or self._performance_trace_active):
+                        or self._refresh_active is not None or self._battle_requested.is_set() or self._quick_wheel_active or self._performance_active or self._performance_owner is not None or self._performance_trace_active):
                     return False
                 if self._hud_applied is not None:
                     options = self._hud_applied[1]
@@ -502,6 +508,8 @@ class NativeGameSession:
         self._close_requested.set()
 
     def _finish_close(self) -> None:
+        self._quick_wheel_active = False
+        self._quick_wheel_client = None
         self._performance_active = False
         self._performance_owner = None
         self._performance_trace_active = False
