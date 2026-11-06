@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import themed_style
+from src.features.inventory.warehouse.recommendation_controller import WarehouseRecommendationFlow
 from src.app.workers import WorkerThread
 from src.domain.inventory.warehouse_filter import WarehouseFilterSpec
 from src.features.inventory.warehouse.cards import (
@@ -48,7 +49,7 @@ from src.features.inventory.warehouse.identification_controller import (
 )
 from src.features.scanning.post_action_dialog import (
     load_scan_post_action_config,
-    show_scan_post_action_dialog,
+    ScanPostActionDialog,
 )
 from src.domain.post_actions import validate_post_action_config
 from src.observability import OperationContext
@@ -110,6 +111,8 @@ def _page_warehouse(self):
     self.warehouse_save_btn.clicked.connect(self._save_warehouse_state_changes)
     title_row.addWidget(self.warehouse_save_btn)
     layout.addLayout(title_row)
+    self.warehouse_read_controller.score_label = QLabel("仓库分：正在评估…")
+    layout.addWidget(self.warehouse_read_controller.score_label)
 
     filters = QHBoxLayout()
     filters.setSpacing(8)
@@ -185,6 +188,8 @@ def _refresh_warehouse(self):
         database_path=context.account.user_database_path,
         static_database_path=context.paths.static_database_path,
         asset_root=context.paths.game_ui_asset_root,
+        scoring_database_path=context.paths.equipment_allocation_database_path,
+        config_dir=context.paths.config_dir,
     )
     self.warehouse_hint.setText("正在读取背包稳定快照…")
     self.warehouse_hint.show()
@@ -306,6 +311,7 @@ def _set_warehouse_selected_state(
         else:
             pending[uid] = target_state
         changed_uids.add(uid)
+        self.warehouse_read_controller.recommendation_targets.pop(uid, None)
     if not changed_uids:
         return
     self._warehouse_pending_state_changes = pending
@@ -354,6 +360,7 @@ def _toggle_warehouse_item_state(
         pending.pop(uid, None)
     else:
         pending[uid] = target_state
+    self.warehouse_read_controller.recommendation_targets.pop(uid, None)
     self._warehouse_pending_state_changes = pending
     self._warehouse_all_items = [
         warehouse_item_with_state(source, target_state) if str(source.get("uid")) == uid else source
@@ -389,6 +396,7 @@ def _save_warehouse_state_changes(self):
     service = WarehouseStateManagementService(
         self.app_context.account.user_database_path,
         sync_service,
+        input_guard=self.warehouse_read_controller.recommendation_guard,
         operation_context=OperationContext.create(
             "warehouse",
             account_id=self.app_context.account.active_account_id,
@@ -462,7 +470,8 @@ def _open_warehouse_state_manager(self):
         )
         return
     account = self.app_context.account
-    if not show_scan_post_action_dialog(
+    recommendation = WarehouseRecommendationFlow(self.app_context)
+    dialog = ScanPostActionDialog(
         self,
         account.user_config_dir,
         self.app_context.paths.config_dir,
@@ -472,7 +481,24 @@ def _open_warehouse_state_manager(self):
         window_title="仓库弃置/锁定管理",
         show_server_region_option=False,
         role_suit_matching=self.role_suit_matching,
+        recommendation_callback=recommendation.open,
+    )
+    from PySide6.QtWidgets import QDialog
+    try:
+        if dialog.exec() != QDialog.Accepted:
+            return
+        recommendation.invalidate_staged(self)
+        if not dialog.calculate_requested:
+            self._refresh_warehouse()
+            return
+    finally:
+        dialog.deleteLater()
+    config = load_scan_post_action_config(account.user_config_dir, user_database_path=account.user_database_path)
+    if config.get('recommendation', {}).get('rule_scheme_version') is not None and any(
+        r.get('intelligent') or r.get('smart_kind') for r in config['preserve_rules']
     ):
+        recommendation.calculate_saved(self, config)
+        recommendation.stage(self)
         return
     config = load_scan_post_action_config(
         account.user_config_dir,

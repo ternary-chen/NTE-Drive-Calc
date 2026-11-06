@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import re
 from functools import lru_cache
+from math import isfinite
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -35,6 +36,7 @@ from src.services.inventory.warehouse_visual_catalog import (
 )
 from src.ui.equipment_state_icons import paint_warehouse_lock_button
 from src.ui.role_portrait import custom_role_portrait
+from src.ui.attribute_summary_panel import attribute_summary_weight_color
 
 
 _STAT_LABELS = {
@@ -614,6 +616,9 @@ class WarehouseCardDelegate(QStyledItemDelegate):
     def _stat_row(painter: QPainter, rect: QRect, stat: Mapping[str, Any], *, main: bool = False) -> None:
         label_color = theme_color("#f0f6fc" if main else "#8b949e")
         value_color = theme_color("#f0f6fc" if main else "#c9d1d9")
+        weight = stat.get('weight')
+        if isinstance(weight, (int, float)) and isfinite(weight):
+            label_color = attribute_summary_weight_color(weight)
         comparison_background = str(stat.get("comparison_background") or "")
         if comparison_background:
             background = QColor(comparison_background)

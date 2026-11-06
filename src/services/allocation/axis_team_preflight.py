@@ -11,6 +11,7 @@ from src.storage.sqlite.user_data_dao import UserDataDao
 
 
 _MESSAGES = {
+    "axis_team_context_incomplete": "所选战报的队伍上下文记录不完整，或首击快照无法与上下文核对。请更换战报或重新采集。",
     "axis_team_attempt_missing": "所选范围的战斗尝试记录缺失或时间不一致，请选择有冻结记录的半场或时段。",
     "axis_team_scope_conflict": "所选范围包含不同队伍，请选择一个队伍稳定的半场或时段。",
     "axis_team_changed": "所选时段内队伍发生变化，请缩小范围或更换战报。",

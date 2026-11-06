@@ -9,7 +9,7 @@ from src.app.theme import themed_style
 
 
 class RuleOrderController(QObject):
-    """只编辑展示顺序；规则身份和动作优先级仍由原管理页及领域层拥有。"""
+    """编辑规则执行顺序草稿；首条命中动作由领域层按保存后的列表判定。"""
 
     def __init__(self, scroll, rows, move):
         super().__init__(scroll)
@@ -135,7 +135,7 @@ class RuleOrderHandle(QPushButton):
         self.order, self.rule = order, rule
         self._pressed = self._armed = False
         self.setAccessibleName(f"拖动排序：{rule.get('name') or '未命名规则'}")
-        self.setToolTip("长按拖动排序；Ctrl+↑/↓ 移动。仅改变展示顺序。")
+        self.setToolTip("长按拖动排序；Ctrl+↑/↓ 移动。越靠上优先级越高，首条命中规则决定动作。")
         self.setCursor(Qt.OpenHandCursor)
         self.setAutoDefault(False)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)

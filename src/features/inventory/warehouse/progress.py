@@ -105,6 +105,10 @@ def update_warehouse_save_state(window: Any) -> None:
     pending_count = len(
         getattr(window, "_warehouse_pending_state_changes", {})
     )
+    owner = getattr(window, "warehouse_read_controller", None)
+    if not pending_count and owner is not None:
+        owner.recommendation_guard = None
+        owner.recommendation_targets = {}
     if hasattr(window, "warehouse_save_btn"):
         window.warehouse_save_btn.setEnabled(not getattr(window, "_warehouse_management_busy", False))
         window.warehouse_save_btn.setText(

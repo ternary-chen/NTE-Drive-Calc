@@ -41,6 +41,49 @@ def close_host(app, host):
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
+def test_score_is_automatic_does_not_block_cards_and_cannot_cross_accounts(app, monkeypatch, tmp_path):
+    entered,release=threading.Event(),threading.Event()
+    def quality(request,snapshot_id,cancel_check):
+        if request.generation==1:
+            entered.set()
+            assert release.wait(5)
+        return {'score':100+request.generation,'core_count':25,'core_target':25,'drive_count':185}
+    host=make_host(monkeypatch,tmp_path,lambda request:snapshot(request.generation),quality)
+    try:
+        host._refresh_warehouse()
+        until(app,entered.is_set)
+        assert host.warehouse_model.rowCount()==1 and '正在评估' in host.warehouse_read_controller.score_label.text()
+        reset_warehouse_account(host)
+        host.app_context.account=SimpleNamespace(active_account_id='second',user_database_path=tmp_path/'second.sqlite3')
+        host.app_context.generation=2
+        host._refresh_warehouse()
+        until(app,lambda:host._warehouse_snapshot_id==2)
+        release.set()
+        until(app,lambda:not host.warehouse_read_controller.is_running())
+        assert '102.00' in host.warehouse_read_controller.score_label.text()
+        assert '101.00' not in host.warehouse_read_controller.score_label.text()
+    finally:
+        release.set();close_host(app,host)
+
+
+def test_score_failure_keeps_inventory_and_next_refresh_retries(app,monkeypatch,tmp_path):
+    failing=[True]
+    def quality(*_):
+        if failing[0]:raise ValueError('fixture score unavailable')
+        return {'score':320.89,'core_count':25,'core_target':25,'drive_count':185}
+    host=make_host(monkeypatch,tmp_path,lambda _:snapshot(1),quality)
+    try:
+        host._refresh_warehouse()
+        until(app,lambda:not host.warehouse_read_controller.is_running())
+        assert host.warehouse_model.rowCount()==1 and '暂不可用' in host.warehouse_read_controller.score_label.text()
+        assert 'fixture score unavailable' in host.warehouse_read_controller.score_label.toolTip()
+        failing[0]=False;host._refresh_warehouse()
+        until(app,lambda:not host.warehouse_read_controller.is_running())
+        assert '320.89' in host.warehouse_read_controller.score_label.text()
+    finally:
+        close_host(app,host)
+
+
 def snapshot(identity):
     return {"snapshot_id": identity, "source": "nte_core", "items": [
         {"uid": f"fixture-{identity}", "kind": "module", "state_known": True,
@@ -49,9 +92,10 @@ def snapshot(identity):
     ]}
 
 
-def make_host(monkeypatch, tmp_path, reader):
+def make_host(monkeypatch, tmp_path, reader, quality_reader=None):
+    quality_reader = quality_reader or (lambda *_:{'score':320,'core_count':25,'core_target':25,'drive_count':185})
     monkeypatch.setattr(page_module, "WarehouseReadController",
-                        lambda parent: WarehouseReadController(parent, reader=reader))
+                        lambda parent: WarehouseReadController(parent, reader=reader,quality_reader=quality_reader))
 
     class Host(page_module.WarehouseControllerMixin, QWidget):
         pass
@@ -60,7 +104,8 @@ def make_host(monkeypatch, tmp_path, reader):
     host.app_context = SimpleNamespace(
         account=SimpleNamespace(active_account_id="fixture-a", user_database_path=tmp_path / "a.sqlite3"),
         generation=1,
-        paths=SimpleNamespace(static_database_path=tmp_path / "static-a.sqlite3", game_ui_asset_root=tmp_path / "assets-a"),
+        paths=SimpleNamespace(static_database_path=tmp_path / "static-a.sqlite3", game_ui_asset_root=tmp_path / "assets-a",
+            equipment_allocation_database_path=tmp_path/'score.sqlite3',config_dir=tmp_path/'config'),
     )
     page = host._page_warehouse()
     page.setParent(host)

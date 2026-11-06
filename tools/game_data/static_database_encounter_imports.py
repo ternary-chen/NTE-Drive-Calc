@@ -7,6 +7,7 @@ import re
 from datetime import timedelta
 
 from tools.game_data.static_database_build_support import *
+from tools.game_data.static_database_feast_mechanisms import option_score
 
 
 _DIVINATION_PROPERTIES = {
@@ -22,6 +23,18 @@ _DIVINATION_PROPERTIES = {
 }
 
 _AUDITED_OUTER_REALM_BUFF_COMPONENTS = {
+    # 测试服 P13/P14 的六属性穿透由各自 GE Modifier 逐条核对；数值仍读同版曲线。
+    "Abyss_13": tuple(("whole_battle", "DamagePenetrate" + element,
+        "Buff_Abyss_Phase_013_Penetrate", None, None, 1)
+        for element in ("Cosmos", "Nature", "Incantation", "Chaos", "Psyche", "Lakshana")) + (
+        ("observed_recipient_effect", "DamageUpGeneralBase", "Buff_Abyss_Phase_013_Up", "Buff_Abyss_Phase_013_CD", None, 1),
+    ),
+    "Abyss_14": (("whole_battle", "DefIgnore", "Buff_Abyss_Phase_014_DefIgnore", None, None, 1),) + tuple(
+        ("observed_recipient_effect", "DamagePenetrate" + element,
+         "Buff_Abyss_Phase_014_Penetrate", "Buff_Abyss_Phase_014_CD", None, 1)
+        for element in ("Cosmos", "Nature", "Incantation", "Chaos", "Psyche", "Lakshana")),
+    "Abyss_15": (("whole_battle_summon", "DamageUpGeneralBase", "Buff_Abyss_Phase_015_SummonDmgUp", None, None, 1),),
+
     "Abyss_10": (
         ("whole_battle_qte", "DamageUpGeneralBase", "Buff_Abyss_Phase_010_Up", None, None, 1),
         ("observed_recipient_effect", "AtkUp", "Buff_Abyss_Phase_010_Atk", "Buff_Abyss_Phase_010_CD", None, 1),
@@ -145,17 +158,33 @@ class EncounterImportMixin:
                         else None
                     ),
                     optional_int(node.get("LimitSeconds")),
-                    int(node.get("Score") or 0),
+                    option_score(node),
                     buff_path,
                     self.source_row_id("feast_options", option_id),
                 ),
             )
 
+        from tools.game_data.static_database_feast_mechanisms import import_mechanisms
+        import_mechanisms(self)
+
         for stage_id, row in sorted(self.rows["feast_stages"].items()):
             name, _, _ = text_parts(row.get("DescName"))
             if not name:
                 raise StaticDatabaseError(f"争锋赏宴关卡缺少名称：{stage_id}")
-            boss_id = _boss_id(str(asset_path(row.get("PreviewActorClass")) or ""))
+            previews = row.get("PreviewActorArray")
+            if previews is None:
+                previews = [{"PreviewActorClass": row.get("PreviewActorClass")}]
+            if not isinstance(previews, list) or not previews:
+                raise StaticDatabaseError(f"争锋赏宴缺少预览目标：{stage_id}")
+            preview_members = [asset_path(item.get("PreviewActorClass")) for item in previews]
+            if not all(preview_members):
+                raise StaticDatabaseError(f"争锋预览资源缺失：{stage_id}")
+            # 战斗目标来自同版副本 SpawnID，预览资产目录名不能生成怪物 ID。
+            nodes = self.rows["clone_system"].get(stage_id, {}).get("CloneSystemSubNodes", [])
+            spawn_ids = {optional_text(node.get("SpawnID")) for node in nodes}
+            if len(spawn_ids) != 1 or None in spawn_ids:
+                raise StaticDatabaseError(f"争锋副本目标不唯一或缺失：{stage_id}")
+            boss_id = next(iter(spawn_ids))
             resolved = self.connection.execute(
                 """
                 SELECT monster_id FROM monster_instance_profile
@@ -178,6 +207,16 @@ class EncounterImportMixin:
                     source_row_id,
                 ),
             )
+            for ordinal, preview in enumerate(preview_members):
+                self.connection.execute("INSERT INTO feast_stage_member VALUES (?,?,?,?)",
+                                        (stage_id, ordinal, boss_id if ordinal == 0 else None, preview))
+            for ordinal, choice in enumerate(row.get("MechanismOptionChoices") or ()):
+                option_id = choice.get("OptionID")
+                if option_id not in options:
+                    raise StaticDatabaseError(f"争锋机制选项不存在：{stage_id}/{option_id}")
+                self.connection.execute("INSERT INTO feast_stage_mechanism_option VALUES (?,?,?,?,?)",
+                    (stage_id, ordinal, option_id, text_parts(row.get("MechanismCategoryTitle"))[0],
+                     optional_int(row.get("MechanismScoreLimit"))))
             displays = {
                 int(item["Key"]): item["Value"]
                 for item in row.get("DifficultyDisplayData") or ()
@@ -421,7 +460,7 @@ class EncounterImportMixin:
                         limit,
                         curve_id,
                         self.source_row_id("abyss_buff_curves", curve_id),
-                        (gameplay_effect_path.split(".", 1)[0] + "_effect")
+                        (gameplay_effect_path.split(".", 1)[0] + ("_Penetrate" if config_id == "Abyss_14" else "_effect"))
                         if trigger_kind == "observed_recipient_effect" else None,
                     ),
                 )

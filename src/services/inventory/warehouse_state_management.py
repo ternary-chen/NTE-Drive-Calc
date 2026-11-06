@@ -96,7 +96,9 @@ class WarehouseStateManagementService:
         config_dir: str | Path | None = None,
         static_database_path: str | Path | None = None,
         operation_context: OperationContext | None = None,
+        input_guard=None,
     ) -> None:
+        self.input_guard = input_guard
         self.database_path = Path(database_path)
         self.sync_service = sync_service
         self.state_writer = state_writer_factory(sync_service)
@@ -288,13 +290,18 @@ class WarehouseStateManagementService:
             raise WarehouseStateManagementError(str(exc)) from exc
 
         check_current = None
-        if plan.matching_identity:
+        if plan.matching_identity or self.input_guard is not None:
             settings = MatchingSettingsService(self.database_path)
             def check_current():
-                settings.require_identity(plan.matching_identity)
+                if plan.matching_identity:
+                    settings.require_identity(plan.matching_identity)
+                if self.input_guard is not None:
+                    # 状态 RPC 本身会推进库存，快照身份在下方及写操作前置条件中核对。
+                    self.input_guard.require_current(check_snapshot=False)
+                    self.input_guard.require_targets({change['uid']:change['target_state'] for change in plan.changes})
             try:
                 check_current()
-            except CancelledError as exc:
+            except (CancelledError, ValueError) as exc:
                 raise WarehouseStateManagementError(str(exc)) from exc
         guard_token: object | None = None
         with self.dao_factory(self.database_path) as user_dao:

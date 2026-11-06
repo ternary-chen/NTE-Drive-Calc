@@ -254,6 +254,7 @@ def run_legacy_allocation(
     excluded_uids: Iterable[tuple[int, int]] = (),
     allow_missing_core: bool = False,
     cancel_check: Callable[[], bool] | None = None,
+    kernel_executor=None,
 ) -> LegacyAllocationRun:
     """Run the unchanged old scoring, blueprint and strategy pipeline.
 
@@ -316,7 +317,8 @@ def run_legacy_allocation(
         drive_screen_limit=drive_screen_limit, tape_screen_limit=tape_screen_limit,
         cancel_check=cancel_check,
     )
-    plans = AllocationKernel(scoring).execute(request)
+    plans = (kernel_executor(request, scoring) if kernel_executor is not None
+             else AllocationKernel(scoring).execute(request))
     _checkpoint(cancel_check)
     return LegacyAllocationRun(
         role_keys=tuple((role.character_id, _role_key(role)) for role in selected_roles),

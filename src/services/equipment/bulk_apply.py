@@ -144,6 +144,7 @@ class BulkEquipmentApplyService:
         identity_overrides = identity_overrides or {}
         applied: list[dict[str, Any]] = []
         identity_requests: list[dict[str, Any]] = []
+        skipped_roles: list[dict[str, Any]] = []
         pinned_snapshot_id: int | None = None
         with self.dao_factory(self.database_path) as user_dao:
             self._check()
@@ -157,6 +158,7 @@ class BulkEquipmentApplyService:
                     user_dao,
                     apply_service,
                     job_id,
+                    skipped_roles,
                 )
             else:
                 (
@@ -170,13 +172,19 @@ class BulkEquipmentApplyService:
                     role_names,
                     slot_ids,
                     identity_overrides,
+                    skipped_roles,
                 )
             if early is not None:
-                return early
+                return {**early, "skipped_roles": skipped_roles}
 
-            stable_snapshot_id = pinned_snapshot_id or apply_service.require_stable_snapshot()
+            stable_snapshot_id = pinned_snapshot_id or prepared[0]["snapshot_id"]
             apply_service.execution_check = self._check
             frozen_plans = apply_service.freeze_plans(prepared, stable_snapshot_id)
+            for role in prepared:
+                plan = frozen_plans[int(role["plan_id"])]
+                role["skipped_assignments"] = plan.get("skipped_assignments") or []
+                role["module_count"] = sum(item["kind"] == "module" for item in plan["assignments"])
+                role["core_count"] = sum(item["kind"] == "core" for item in plan["assignments"])
             apply_service.validate_bulk_plans_for_fast_apply(prepared, stable_snapshot_id=stable_snapshot_id)
             frozen_inventory_uids = self._inventory_uid_pairs(user_dao, stable_snapshot_id)
             recovery = EquipmentApplyRecovery(
@@ -212,6 +220,7 @@ class BulkEquipmentApplyService:
                     frozen_plans=frozen_plans,
                 )
                 if failure is not None:
+                    failure["skipped_roles"] = skipped_roles
                     failure["projected_count"] = projected_count
                     failure["recovery_retry_count"] = recovery.short_retry_count
                     failure["snapshot_recovery_count"] = recovery.total_sync_recoveries
@@ -238,6 +247,7 @@ class BulkEquipmentApplyService:
             "job_id": job_id,
             "applied": applied,
             "identity_requests": identity_requests,
+            "skipped_roles": skipped_roles,
             **postcheck,
             "projected_count": projected_count,
             "completed": completed,
@@ -291,6 +301,7 @@ class BulkEquipmentApplyService:
         user_dao,
         apply_service,
         job_id: int,
+        skipped_roles: list[dict],
     ) -> tuple[list[dict], int | None, dict | None]:
         job = user_dao.get_equipment_apply_job(job_id)
         if job is None:
@@ -339,7 +350,20 @@ class BulkEquipmentApplyService:
                     "preflight_errors": preflight_errors,
                 },
             )
-        return prepared, pinned_snapshot_id, None
+        available = []
+        for role in prepared:
+            plan = apply_service.read_plan(role["plan_id"])
+            if plan["assignments"]:
+                available.append(role)
+                continue
+            skipped_roles.append({**role, "skipped_assignments": plan.get("skipped_assignments") or []})
+            user_dao.mark_equipment_apply_job_item(
+                role["job_item_id"], status="failed", verified=False,
+                error="无可用装备，本次已跳过，未发送装配指令",
+            )
+        return available, pinned_snapshot_id, (
+            {"job_id": job_id, "applied": [], "completed": False} if not available else None
+        )
 
     def _prepare_new(
         self,
@@ -348,19 +372,18 @@ class BulkEquipmentApplyService:
         role_names: list[str],
         slot_ids: list[int] | None,
         identity_overrides: dict[str, dict],
+        skipped_roles: list[dict],
     ) -> tuple[list[dict], list[dict], int | None, dict | None]:
-        snapshot_id = user_dao.current_inventory_snapshot_id()
-        if snapshot_id is None:
-            raise RuntimeError("用户数据库中还没有稳定背包快照")
+        snapshot_id = apply_service.require_stable_snapshot()
         prepared: list[dict] = []
         identity_requests: list[dict] = []
         preflight_errors: list[dict] = []
         selected_plans: list[tuple[str, dict]] = []
         selection_service = LoadoutSlotSelectionService(user_dao)
         if slot_ids:
-            requested_selections = selection_service.resolve(slot_ids)
+            requested_selections = selection_service.resolve(slot_ids, defer_equipment_conflicts=True)
         else:
-            requested_selections = selection_service.resolve_default_roles(role_names)
+            requested_selections = selection_service.resolve_default_roles(role_names, defer_equipment_conflicts=True)
         custom_character_ids = {
             int(row["character_id"])
             for row in user_dao.list_custom_characters()
@@ -388,6 +411,7 @@ class BulkEquipmentApplyService:
         native_selections = selection_service.resolve(
             [selection.slot_id for selection in requested_selections],
             require_native_snapshot=True,
+            defer_equipment_conflicts=True,
         )
         for selection in native_selections:
             selected_plans.append((selection.role_name, dict(selection.plan)))
@@ -402,12 +426,15 @@ class BulkEquipmentApplyService:
                     "请改用自动装配；极速装配仅支持抓包稳定快照。"
                 )
             try:
-                apply_service.validate_plan_for_fast_apply(
+                plan = apply_service.validate_plan_for_fast_apply(
                     plan["plan_id"],
                     stable_snapshot_id=snapshot_id,
                 )
             except Exception as exc:
                 preflight_errors.append({"role_name": role_name, "error": str(exc)})
+                continue
+            if not plan["assignments"]:
+                skipped_roles.append({"role_name": role_name, "skipped_assignments": plan["skipped_assignments"]})
                 continue
             override = identity_overrides.get(role_name)
             character_id = int(plan["character_id"])
@@ -435,6 +462,7 @@ class BulkEquipmentApplyService:
                     "character_id": character_id,
                     "character_uid": character_uid,
                     "plan_id": plan["plan_id"],
+                    "snapshot_id": snapshot_id,
                     "fallback_targets": targets[1:],
                     "module_count": sum(1 for row in plan["assignments"] if row["kind"] == "module"),
                     "core_count": sum(1 for row in plan["assignments"] if row["kind"] == "core"),
@@ -592,6 +620,7 @@ class BulkEquipmentApplyService:
                     before_snapshot_id=result.before_snapshot_id,
                     after_snapshot_id=result.after_snapshot_id,
                     verified=result.verified,
+                    skipped_count=len(role.get("skipped_assignments") or ()),
                 )
                 applied.append(
                     {
@@ -601,6 +630,7 @@ class BulkEquipmentApplyService:
                         "plan_id": role["plan_id"],
                         "module_count": role.get("module_count"),
                         "core_count": role.get("core_count"),
+                        "skipped_assignments": role.get("skipped_assignments") or [],
                         "snapshot_id": result.after_snapshot_id,
                         "verified": result.verified,
                         "already_applied": result.already_applied,
@@ -614,7 +644,8 @@ class BulkEquipmentApplyService:
                     progress_callback,
                     current=index,
                     total=len(prepared),
-                    message=(f"[{role_name}] 已确认" if result.verified else f"[{role_name}] 指令已下发"),
+                    message=(f"[{role_name}] 可用装备已确认" if result.verified else f"[{role_name}] 指令已下发")
+                    + ("（部分装配，已跳过缺件）" if role.get("skipped_assignments") else ""),
                 )
             except Exception as exc:
                 self.check_current()

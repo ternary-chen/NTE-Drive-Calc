@@ -22,7 +22,7 @@ class ProjectMetadataTests(unittest.TestCase):
         )
 
     def test_dated_test_versions_keep_release_order_and_package_identity(self):
-        self.assertEqual(__package_version__, "2.4.0.dev10171737")
+        self.assertEqual(__package_version__, "2.4.0.dev202611062209")
         for remote, current, newer in (
             ("2.3.1.T261003", "2.3.1.T261002", True),
             ("2.3.1.T261002", "2.3.1.T261002", False),
@@ -37,12 +37,20 @@ class ProjectMetadataTests(unittest.TestCase):
             ("2.4.0.10171736T", "2.4.0.10171737T", False),
             ("2.4.0", "2.4.0.10171737T", True),
             ("2.4.0.10171737T", "2.4.0", False),
+            ("2.4.0.10242138T", "2.4.0.10241835T", True),
+            ("2.4.0.202611051854T", "2.4.0.10242205T", True),
+            ("2.4.0.202611051854T", "2.4.0.202611051853T", True),
+            ("2.4.0.202611051854T", "2.4.0.202611051854T", False),
+            ("2.4.0.202611051853T", "2.4.0.202611051854T", False),
+            ("2.4.0", "2.4.0.202611051854T", True),
+            ("2.4.0.202611051854T", "2.4.0", False),
         ):
             with self.subTest(remote=remote, current=current):
                 self.assertEqual(is_newer_version(remote, current), newer)
         self.assertEqual(windows_numeric_version("2.3.1.T261002"), "2.3.1.0")
         self.assertEqual(windows_numeric_version("2.3.1"), "2.3.1.0")
         self.assertEqual(windows_numeric_version("2.4.0.10171737T"), "2.4.0.0")
+        self.assertEqual(windows_numeric_version("2.4.0.202611051854T"), "2.4.0.0")
         with self.assertRaises(ValueError):
             windows_numeric_version("2.3.1.T261002\nInjected=yes")
 

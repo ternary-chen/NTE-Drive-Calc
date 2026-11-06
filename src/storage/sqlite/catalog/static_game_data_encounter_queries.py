@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .static_feast_roster import feast_difficulty_targets
+
 
 class StaticGameDataEncounterQueriesMixin:
     """查询场景、敌人与战斗入口的正式关系。"""
@@ -569,15 +571,23 @@ class StaticGameDataEncounterQueriesMixin:
                     difficulty["profile_set"], difficulty["pack_id"]
                 )
                 difficulty["resistances"] = (profile or {}).get("resistances", {})
+                difficulty["targets"] = feast_difficulty_targets(self, stage, difficulty)
             stage["difficulties"] = difficulties
             categories: dict[int, dict[str, Any]] = {}
+            # 已支持的旧版资料库仍读取原目录；新增机制只消费 v41 的正式补充表。
+            mechanism_catalog = self._schema_version >= 41
+            option_table = "feast_all_stage_option" if mechanism_catalog else "feast_stage_option"
+            detail_columns = (",d.description_zh,d.player_buffs_json,d.boss_buffs_json,d.option_node_text"
+                              if mechanism_catalog else "")
+            detail_join = "LEFT JOIN feast_mechanism_detail AS d USING (option_id)" if mechanism_catalog else ""
             for row in self._rows(
-                """
+                f"""
                 SELECT s.category_ordinal, s.option_ordinal, s.category_name_zh,
                        o.option_id, o.option_type, o.effect_kind, o.damage_type,
-                       o.add_value, o.limit_seconds, o.score, o.buff_asset_path
-                FROM feast_stage_option AS s
+                       o.add_value, o.limit_seconds, o.score, o.buff_asset_path {detail_columns}
+                FROM {option_table} AS s
                 JOIN feast_option AS o USING (option_id)
+                {detail_join}
                 WHERE s.stage_id = ?
                 ORDER BY s.category_ordinal, s.option_ordinal
                 """,

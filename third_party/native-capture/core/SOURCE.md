@@ -1,8 +1,5 @@
-# Native core component source
+# Native Core source
 
-Version: 0.4.6
-Source commit: 35079db716c6d37d883136d6d879aa1b061e26be
-Build input SHA-256: 7a5334f923d1109948f73c7cf2b78b75abc3eb4858f99899db5ea1419ac2623a
-Source state: working-tree
+Base commit: e9a858791b17adacfeb40ca9995a68143dc0a30f. Modified source input digest: d9a95d6359c666cad86fc7127305491e4dede0922a10831d450898df0ea05255.
 
-Capture Core CLI. Preserve original first-hit references and separately recover archived observations with the same provider, scene roots, and first-hit revision.
+Release x64 build uses cli features and remapped build paths. Typed menu pause evidence is accepted in capture, replay and persistence. Menu and skill overlap is counted once. Targeted native clock and serialized pause tests passed; real-game capture acceptance remains pending.

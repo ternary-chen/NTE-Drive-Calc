@@ -43,6 +43,7 @@ class LoadoutSlotSelectionService:
         role_names: Iterable[str] | None = None,
         *,
         require_native_snapshot: bool = False,
+        defer_equipment_conflicts: bool = False,
     ) -> tuple[ResolvedLoadoutSlotSelection, ...]:
         """Pick one current slot per role for a role-based legacy action.
 
@@ -79,6 +80,7 @@ class LoadoutSlotSelectionService:
         return self.resolve(
             selected_ids,
             require_native_snapshot=require_native_snapshot,
+            defer_equipment_conflicts=defer_equipment_conflicts,
         )
 
     def resolve(
@@ -86,6 +88,7 @@ class LoadoutSlotSelectionService:
         slot_ids: Iterable[int],
         *,
         require_native_snapshot: bool = False,
+        defer_equipment_conflicts: bool = False,
     ) -> tuple[ResolvedLoadoutSlotSelection, ...]:
         """Resolve and validate user-selected slots before any game-side input.
 
@@ -128,7 +131,9 @@ class LoadoutSlotSelectionService:
                 )
             if require_native_snapshot:
                 self._require_native_snapshot(selection)
-            self._assert_no_duplicate_equipment(selection, equipment_owner)
+            # 极速链路在冻结库存并排除缺件后统一复核真实目标冲突，其他入口仍在此阻断。
+            if not defer_equipment_conflicts:
+                self._assert_no_duplicate_equipment(selection, equipment_owner)
             selections.append(selection)
         return tuple(selections)
 

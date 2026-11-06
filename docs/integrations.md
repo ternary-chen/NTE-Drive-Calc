@@ -742,6 +742,16 @@ $takeover = @{ Profile=$profile; ProfileSha256=$profileSha; TargetRoot=$target;
 改写候选。
 禁止直接构建到 `data/`、手工复制候选或只修改 manifest；晋升失败仍视为未完成。静态库和
 `data/manifest.json` 作为同一次晋升产生的原子变更审查，改变规范化输出的 importer 修改必须递增版本。
+本机配置可登记 `export_quality_report` 及其 SHA-256，绑定解包输出目录和失败清单。
+晋升按候选实际登记的来源取交集：解析失败来源默认拒绝晋升。经明确审查允许保留的数据缺口，须在
+`reviewed_blueprint_gaps` 逐文件登记 Content 相对路径、SHA-256 和原因，并在构建时传入
+`--export-quality-config`。导入仅保留来源记录，排除该蓝图的机制投影，指向它的引用标记不可用；
+晋升再次核对隔离结果，将 `partial`、`unknown` 及确切缺口写入发行清单和报告。新增失败或哈希变化
+仍阻断，不得用全局忽略开关、旧版机制或零值补齐。不消费这些资源的独立图鉴可分别验证，不因此
+取得完整战报能力。JSON 可解析、导出器异常为零和 SQLite 完整性均不能替代此检查。
+培养指南中明确的 FName `None` 表示无弧盘推荐，保留指南而不生成假弧盘身份；缺字段或未知非空 ID
+仍失败。弧盘精炼 `NameID`/`NameId`、卡池 `CharacterIDs`/`CharacterIds`、争锋积分 `Score`/`score`
+只兼容已确认的拼写，冲突拒绝；积分缺失保持未知，稀疏精炼曲线严格按来源插值模式取值。
 Blueprint 依赖表排除包内 Outer、ClassDefaultObject、Children 和 FuncMap 的重复自引用；完整来源仍按文件哈希登记，Properties、Super、Template 及跨包引用保留。弧盘入口位于 Calculation 目录时，沿正式 ExecGEs 引用闭包导入带 Buff 属性的子资源；深渊曲线同时进入公共 combat_curve，赛季组件与底层 Buff 求值使用同版来源。
 
 解包后的 `Content` 目录只作为登记来源输入，不按目录做数据库全量覆盖；弧盘常驻属性由已规范化的
@@ -765,6 +775,12 @@ DataTable、本地化与 Blueprint 来源闭包；仅需验证解析器或更新
 数据库、manifest 和清单内图片，失败恢复上一完整包；未知旧文件和待恢复备份阻止替换。角色包不得晋升到
 主 `data/`，完整游戏库不得晋升到角色目录。打包入口校验整包并只纳入声明的文件。
 运行时只在目录整包缺失时使用原完整库；已安装包用途或哈希不符时报错。安装后重新启动应用选定新的目录身份。
+
+若同版资源包确实缺少正式引用的角色头像或立绘，可向参考图片构建入口传入
+`--unavailable-character-images` 逐项审查文件。每项必须包含 `group`、`character_id`、
+`source_asset_path` 与 `reason`，精确匹配当前正式绑定，且对应图片确实不存在。
+构建清单记录 `unavailable_character_images`，仅省略该图片映射，不删除角色资料或替换为其他角色图片。
+技能图片不接受此例外；重复审查、过期绑定、实际存在的图片或其他资源组仍阻止构建。
 
 manifest 从 schema v30 起必须记录并严格核对 `database.size_bytes`；schema v29 旧清单仅在读取时按实际文件
 大小校验并提示迁移。体积统一按 `1 MiB = 1,048,576 bytes`：95 MiB（99,614,720 bytes）默认阻断，只有完成

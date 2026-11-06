@@ -31,6 +31,7 @@ def _curve_id(
 def project_equipment_items_to_max_level(
     items: Iterable[Mapping[str, Any]],
     static_dao: StaticGameDataDao,
+    *, include_projection_evidence: bool = False,
 ) -> list[dict[str, Any]]:
     """Keep rolled substats, but evaluate every existing main stat at max level."""
 
@@ -52,6 +53,7 @@ def project_equipment_items_to_max_level(
             or 0
         )
         main_stats = []
+        all_main_values_known = bool(template.get('max_level') or source.get('max_level')) and max_level > 0
         for raw_stat in item.get("main_stats") or ():
             stat = dict(raw_stat)
             curve_id = _curve_id(
@@ -70,6 +72,8 @@ def project_equipment_items_to_max_level(
             )
             if value is not None:
                 stat["value"] = float(value)
+            else:
+                all_main_values_known = False
             main_stats.append(stat)
         item.update(
             {
@@ -84,5 +88,8 @@ def project_equipment_items_to_max_level(
                 ],
             }
         )
+        if include_projection_evidence:
+            # 展示端只有每条主属性均有正式曲线时才能标注满级，缺项仍保留原事实。
+            item['main_stats_at_max_level'] = bool(main_stats) and all_main_values_known
         projected.append(item)
     return projected

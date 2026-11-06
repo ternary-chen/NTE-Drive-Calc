@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 
 from src.services.battle_report.timeline.clock import (
-    ACTIVE_TIME_MODE, projected_range_duration_us, time_stop_overlap_us,
+    ACTIVE_TIME_MODE, menu_pause_intervals, projected_range_duration_us, time_stop_overlap_us,
 )
 
 
@@ -29,6 +29,7 @@ def project_report_metrics(summary, analysis) -> BattleReportMetrics:
     intervals = tuple(getattr(analysis, "time_stop_intervals", ()))
     partial_clock = getattr(analysis, "time_stop_source_kind", "") == "nte_core_partial"
     discarded = tuple(getattr(analysis, "discarded_attempt_intervals", ()))
+    excluded = discarded + menu_pause_intervals(analysis)
     if scoped or discarded:
         # 原生范围伤害已含过量修正与正式生命结算；残缺轴没有观测时仍保留未知。
         observed_damage = float(analysis.effective_damage)
@@ -58,9 +59,10 @@ def project_report_metrics(summary, analysis) -> BattleReportMetrics:
         start = battle_start
     active_us = projected_range_duration_us(
         start, start + raw_duration_us,
-        intervals=discarded + (() if partial_clock else intervals), mode=ACTIVE_TIME_MODE,
+        intervals=() if partial_clock else intervals, mode=ACTIVE_TIME_MODE,
+        excluded_intervals=excluded,
     )
-    real_duration_us = raw_duration_us - time_stop_overlap_us(start, start + raw_duration_us, discarded)
+    real_duration_us = raw_duration_us - time_stop_overlap_us(start, start + raw_duration_us, excluded)
     return BattleReportMetrics(
         damage=damage, damage_taken=taken, duration=max(0.001, active_us / 1_000_000),
         real_duration=max(0, real_duration_us) / 1_000_000, partial_clock=partial_clock,

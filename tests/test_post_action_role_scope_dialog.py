@@ -169,7 +169,7 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
             QTest.keyClick(self.app.focusWidget(), Qt.Key_Up, Qt.ControlModifier)
             self.app.processEvents()
             self.assertEqual(["第二条", "第一条", "第三条"], [r["name"] for r in manager._collect_config()["preserve_rules"]])
-            with patch("src.features.scanning.post_action_dialog.PreserveRuleEditor") as editor:
+            with patch("src.features.scanning.preserve_rule_actions.PreserveRuleEditor") as editor:
                 editor.return_value.exec.return_value = QDialog.Accepted
                 editor.return_value.result_rule.return_value = dict(config["preserve_rules"][0], name="改名第一条")
                 button("编辑规则", "第一条").click()
@@ -188,7 +188,7 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
             self.assertEqual(["discard", "keep", "keep"], [r["action"] for r in saved])
             self.assertEqual([False, True, True], [r["enabled"] for r in saved])
 
-    def test_rule_add_action_is_in_tab_corner_and_action_labels_keep_enums(self):
+    def test_rule_add_action_remains_keyboard_accessible_and_action_labels_keep_enums(self):
         before = current_theme_name()
         self.addCleanup(lambda: apply_app_theme(self.app, before))
         config = default_post_action_config()
@@ -205,7 +205,7 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
                     manager.show()
                     self.app.processEvents()
                     button = next(w for w in manager.findChildren(QPushButton) if w.text() == "新增规则")
-                    self.assertIs(button, manager._main_tabs.cornerWidget(Qt.TopRightCorner))
+                    self.assertTrue(button.isEnabled())
                     self.assertFalse(button.isVisible())
                     manager._main_tabs.setCurrentIndex(1)
                     self.app.processEvents()
@@ -216,7 +216,7 @@ class PostActionRoleScopeDialogTests(unittest.TestCase):
                     self.assertIn("锁定", labels)
                     self.assertIn("弃置", labels)
                     self.assertFalse(any("直接" in text for text in labels))
-                    with patch("src.features.scanning.post_action_dialog.PreserveRuleEditor") as editor:
+                    with patch("src.features.scanning.preserve_rule_actions.PreserveRuleEditor") as editor:
                         editor.return_value.exec.return_value = QDialog.Rejected
                         button.setFocus(Qt.TabFocusReason)
                         QTest.keyClick(button, Qt.Key_Space)

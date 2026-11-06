@@ -85,13 +85,21 @@ def _sanitize_local_record(record: dict) -> bool:
     record["message"] = sanitize_local_log_text(record["message"])
     return True
 
-logger.add(
+_console_sink_id: int | None = logger.add(
     sys.stderr,
     format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{message}</cyan>",
     level=CONSOLE_LOG_LEVEL,
     colorize=not TEST_PROCESS,
     filter=_sanitize_local_record,
 )
+
+def disable_console_logging() -> None:
+    """GUI 启动前撤下控制台输出，避免快速编辑或阻塞管道拖住业务线程。"""
+    global _console_sink_id
+    if _console_sink_id is not None:
+        logger.remove(_console_sink_id)
+        _console_sink_id = None
+
 
 _LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{line} | {message}"
 

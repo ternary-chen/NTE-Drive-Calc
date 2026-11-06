@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from html import escape
 from time import perf_counter
 from typing import Any, Callable, Mapping, Sequence
 
@@ -12,6 +13,7 @@ from PySide6.QtCore import QObject, QSize, Qt, QTimer
 from shiboken6 import isValid
 from PySide6.QtWidgets import (
     QDialog,
+    QCheckBox,
     QBoxLayout,
     QFrame,
     QGridLayout,
@@ -24,10 +26,12 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QVBoxLayout,
+    QTextBrowser,
+    QToolButton,
     QWidget,
 )
 
-from src.app.theme import themed_style
+from src.app.theme import theme_color, themed_style
 from src.app.window_geometry import fit_dialog_to_available_screen
 from src.features.inventory.warehouse.result_card import WarehouseResultCard
 
@@ -148,6 +152,40 @@ class EquipmentReplacementCard:
     direct_damage_score: float | None
     payload: Any
     note: str = ""
+    score_ratio: float | None = None
+    stat_differences: tuple[tuple[str, float], ...] = ()
+
+
+def review_comparison_html(current, choice):
+    """用分组、箭头和正负数共同表达差异；未知得分率不补零。"""
+    def rate(value):
+        return '未评估' if value is None else f'{value:.1%}'
+    parts = [f"同角色得分率<br><b>{rate(current.score_ratio)} → {rate(choice.score_ratio)}</b>"]
+    for positive, label, color in ((True, '↑ 提升', '#2ea043'), (False, '↓ 降低', '#f85149')):
+        rows = [(key, delta) for key, delta in choice.stat_differences if (delta > 0 if positive else delta < 0)]
+        if not rows:
+            continue
+        shade = theme_color(color)
+        parts.append(f'<p style="color:{shade}"><b>{label}</b></p><table width="100%" cellspacing="3">')
+        for key, delta in rows:
+            value = f'{delta:+g}' + ('%' if key.endswith('%') else '')
+            parts.append(f'<tr><td>{escape(key.removesuffix("%"))}</td>'
+                         f'<td align="right" style="color:{shade}"><b>{value}</b></td></tr>')
+        parts.append('</table>')
+    if not choice.stat_differences:
+        parts.append('<p>副属性无变化</p>')
+    if choice.note:
+        parts.append(f'<p>{escape(choice.note)}</p>')
+    return ''.join(parts)
+
+
+@dataclass(frozen=True, slots=True)
+class EquipmentReviewOptions:
+    """只审查冻结建议；采用回调仅改变上层草稿，不执行装备替换。"""
+    reasons: str
+    checked: bool
+    actionable: bool
+    on_checked: Callable[[bool], None]
 
 
 def _stat_key(stat: Mapping[str, Any]) -> str:
@@ -219,6 +257,7 @@ def show_equipment_replacement_dialog(
     on_confirm: Callable[[EquipmentReplacementCard], None] | None = None,
     submit_confirm=None, is_current: Callable[[], bool] = lambda: True,
     cancel_pending: Callable[[], None] = lambda: None,
+    review: EquipmentReviewOptions | None = None,
 ) -> bool:
     """未知边际值保留占位；异步提交区分已保存事实、失败和失效展示。"""
 
@@ -230,9 +269,13 @@ def show_equipment_replacement_dialog(
         QSize(REPLACEMENT_DIALOG_WIDTH, REPLACEMENT_DIALOG_HEIGHT),
     )
     root = QVBoxLayout(dialog)
-    root.setSpacing(10)
+    root.setSpacing(6 if review else 10)
+    if review:
+        root.setContentsMargins(8, 8, 8, 8)
+    card_size = WarehouseResultCard.REVIEW_CARD_SIZE if review else WarehouseResultCard.CARD_SIZE
 
-    header = QLabel(f"装配角色：{role_name}")
+    header = QLabel(f"{'比较评分角色' if review else '装配角色'}：{role_name}"
+                    + (' · 主属性按满级预览' if review else ''))
     header.setStyleSheet(themed_style(
         "font-size:15px;font-weight:800;color:#4dd0e1;"
         "border:1px solid #4dd0e1;border-radius:7px;padding:5px 12px;"
@@ -244,21 +287,25 @@ def show_equipment_replacement_dialog(
     description.setStyleSheet(themed_style("color:#8b949e"))
     root.addWidget(description)
 
-    comparison_group = QGroupBox("候选装备与当前装备")
+    comparison_group = QGroupBox("" if review else "候选装备与当前装备")
     comparison_group.setObjectName("equipmentReplacementComparisonGroup")
     comparison_group.setLayoutDirection(Qt.LeftToRight)
     comparison_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+    if review:
+        comparison_group.setStyleSheet(themed_style(
+            'QGroupBox#equipmentReplacementComparisonGroup{margin-top:0;padding:4px;}'
+        ))
     comparison_layout = QHBoxLayout(comparison_group)
     comparison_layout.setDirection(QBoxLayout.LeftToRight)
     comparison_layout.setContentsMargins(8, 4, 8, 6)
     comparison_layout.setSpacing(10)
     current_column = QVBoxLayout()
     current_column.setSpacing(3)
-    current_label = QLabel("当前装备")
+    current_label = QLabel("检查装备" if review else "当前装备")
     current_label.setStyleSheet(themed_style("font-weight:700;color:#c9d1d9"))
     current_column.addWidget(current_label)
     current_host = QWidget(comparison_group)
-    current_host.setFixedSize(WarehouseResultCard.CARD_SIZE)
+    current_host.setFixedSize(card_size)
     current_host_layout = QVBoxLayout(current_host)
     current_host_layout.setContentsMargins(0, 0, 0, 0)
     current_card = WarehouseResultCard(
@@ -267,6 +314,7 @@ def show_equipment_replacement_dialog(
         grade=current.grade,
         direct_damage_score=current.direct_damage_score,
         split_metrics=True,
+        ratio_only=review is not None, score_ratio=current.score_ratio,
         parent=current_host,
     )
     current_host_layout.addWidget(current_card)
@@ -279,7 +327,7 @@ def show_equipment_replacement_dialog(
     comparison_text.setObjectName("equipmentReplacementComparison")
     comparison_text.setAlignment(Qt.AlignCenter)
     comparison_text.setWordWrap(True)
-    comparison_text.setMinimumWidth(260)
+    comparison_text.setMinimumWidth(170 if review else 260)
     comparison_text.setMaximumWidth(300)
     comparison_text.setStyleSheet(themed_style(
         "font-size:13px;color:#c9d1d9;padding:6px;"
@@ -290,11 +338,11 @@ def show_equipment_replacement_dialog(
 
     selected_column = QVBoxLayout()
     selected_column.setSpacing(3)
-    selected_label = QLabel("候选装备")
+    selected_label = QLabel("保留候选" if review else "候选装备")
     selected_label.setStyleSheet(themed_style("font-weight:700;color:#c9d1d9"))
     selected_column.addWidget(selected_label)
     selected_host = QWidget(comparison_group)
-    selected_host.setFixedSize(WarehouseResultCard.CARD_SIZE)
+    selected_host.setFixedSize(card_size)
     selected_host_layout = QVBoxLayout(selected_host)
     selected_host_layout.setContentsMargins(0, 0, 0, 0)
     selected_placeholder = QLabel("点击下方卡片\n在此生成比较副本", selected_host)
@@ -315,12 +363,46 @@ def show_equipment_replacement_dialog(
         min(310, max(140, fitted_size.height() * 38 // 100))
     )
     comparison_scroll.setWidget(comparison_group)
+    if review:
+        # 按两张卡片的实际内容收紧上区，高度余量全部留给候选；过长差异可在上区滚动。
+        comparison_group.ensurePolished()
+        comparison_scroll.setMinimumHeight(min(180, fitted_size.height() // 3))
+        comparison_scroll.setMaximumHeight(comparison_group.sizeHint().height() + 2)
     root.addWidget(comparison_scroll)
+
+    if review is not None:
+        reason_host = QWidget(dialog)
+        reason_layout = QVBoxLayout(reason_host)
+        reason_layout.setContentsMargins(0, 0, 0, 0)
+        reason_layout.setSpacing(4)
+        toggle_reasons = QToolButton(reason_host)
+        toggle_reasons.setObjectName('equipmentReviewReasonsToggle')
+        toggle_reasons.setText('建议原因 · 展开')
+        toggle_reasons.setCheckable(True)
+        toggle_reasons.setArrowType(Qt.RightArrow)
+        toggle_reasons.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        toggle_reasons.setAccessibleName('展开或收起完整建议原因')
+        reason_layout.addWidget(toggle_reasons, 0, Qt.AlignLeft)
+        reasons = QTextBrowser(dialog)
+        reasons.setAccessibleName('完整建议原因')
+        reasons.setObjectName('equipmentReviewReasons')
+        reasons.setPlainText(review.reasons)
+        reasons.setFixedHeight(min(96, max(48, fitted_size.height() // 8)))
+        reasons.hide()
+        reason_layout.addWidget(reasons)
+        def show_reasons(expanded):
+            reasons.setVisible(expanded)
+            toggle_reasons.setText('建议原因 · 收起' if expanded else '建议原因 · 展开')
+            toggle_reasons.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
+        toggle_reasons.toggled.connect(show_reasons)
+        root.addWidget(reason_host)
 
     candidate_group = QGroupBox()
     candidate_group.setObjectName("equipmentReplacementCandidateGroup")
     candidate_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
     candidate_group.setStyleSheet(themed_style("QGroupBox#equipmentReplacementCandidateGroup{margin-top:0;padding:8px}"))
+    if review:
+        candidate_group.setStyleSheet(themed_style('QGroupBox#equipmentReplacementCandidateGroup{margin-top:0;padding:4px;}'))
     # The card list owns its own scrollbar, so it may yield vertical space to
     # the comparison and bottom action row on scaled notebook screens.
     candidate_group.setMinimumHeight(
@@ -365,6 +447,7 @@ def show_equipment_replacement_dialog(
             grade=choice.grade,
             direct_damage_score=choice.direct_damage_score,
             split_metrics=True,
+            ratio_only=review is not None, score_ratio=choice.score_ratio,
             parent=selected_host,
         )
         selected_copy.setObjectName("equipmentReplacementSelectedPreview")
@@ -379,6 +462,7 @@ def show_equipment_replacement_dialog(
             grade=current.grade,
             direct_damage_score=current.direct_damage_score,
             split_metrics=True,
+            ratio_only=review is not None, score_ratio=current.score_ratio,
             parent=current_host,
         )
         compared_current.setObjectName("equipmentReplacementCurrentPreview")
@@ -398,7 +482,10 @@ def show_equipment_replacement_dialog(
             f"直伤边际收益：{current_direct_text} → {selected_direct_text}"
             + (f"\n{choice.note}" if choice.note else "")
         )
-        confirm.setEnabled(True)
+        if review is not None:
+            comparison_text.setTextFormat(Qt.RichText)
+            comparison_text.setText(review_comparison_html(current, choice))
+        confirm.setEnabled(review is None)
 
     candidate_columns = max(
         1,
@@ -420,10 +507,11 @@ def show_equipment_replacement_dialog(
             grade=choice.grade,
             direct_damage_score=choice.direct_damage_score,
             split_metrics=True,
+            ratio_only=review is not None, score_ratio=choice.score_ratio,
             replacement_callback=lambda value=choice: select(value),
             parent=content,
         )
-        card.setToolTip("点击选择，并在上方与当前装备比较")
+        card.setToolTip("点击选择，并在上方与当前装备比较\n" + card.toolTip())
         candidate_widgets[choice.key] = card
         grid.addWidget(
             card,
@@ -438,8 +526,18 @@ def show_equipment_replacement_dialog(
     root.addWidget(candidate_group, 1)
 
     actions = QHBoxLayout()
+    if review is not None:
+        adopt = QCheckBox('采用本件建议')
+        adopt.setObjectName('equipmentReviewAdopt')
+        adopt.setChecked(review.checked)
+        adopt.setEnabled(review.actionable)
+        adopt.toggled.connect(review.on_checked)
+        actions.addWidget(adopt)
+        confirm.hide()
+        if not candidates:
+            comparison_text.setText('本次冻结结果没有同用途保留候选；建议原因见下方。')
     actions.addStretch()
-    cancel = QPushButton("取消")
+    cancel = QPushButton("关闭" if review else "取消")
     cancel.clicked.connect(dialog.reject)
     actions.addWidget(cancel)
     actions.addWidget(confirm)
@@ -471,6 +569,8 @@ def show_equipment_replacement_dialog(
             dialog.reject()
 
     def commit() -> None:
+        if review is not None:
+            return
         choice = selected[0]
         if choice is None or submitting[0] or not active():
             return

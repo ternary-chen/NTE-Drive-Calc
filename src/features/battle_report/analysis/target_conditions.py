@@ -24,13 +24,12 @@ from src.services.battle_report.targets.profile_snapshot import (
     battle_target_profile_snapshots,
 )
 from src.ui.widgets import NoWheelComboBox
-
+from src.services.battle_report.targets.feast_profiles import feast_target_profiles
 
 _DAMAGE_TYPES = (
     "normal", "chaos", "cosmos", "incantation", "lakshana",
     "nature", "psyche", "psychically",
 )
-
 
 class BattleTargetConditionSelector(QGroupBox):
     preset_changed = Signal(object)
@@ -635,53 +634,18 @@ class BattleTargetConditionSelector(QGroupBox):
     def _feast_preset(self) -> dict[str, Any]:
         stage = self.feast_stage_combo.currentData() or {}
         difficulty = self.feast_difficulty_combo.currentData()
-        target = None
-        if difficulty:
-            target = {
-                "target_id": str(stage.get("boss_monster_id") or ""),
-                "name_zh": f"争锋赏宴·{stage.get('name_zh', '目标')}",
-                "monster_level": float(difficulty.get("monster_level") or 1.0),
-                "profile": {
-                    key: difficulty.get(key)
-                    for key in (
-                        "health_base", "health_up", "health_add", "defense_base",
-                        "defense_up", "defense_add", "topple_limit", "resistances",
-                    )
-                },
-            }
         options = {
             key: combo.currentData()
             for key, combo in self._feast_option_combos.items()
             if combo.currentData()
         }
-        if target is not None:
-            for option in options.values():
-                if option.get("effect_kind") == "health_up":
-                    target["profile"]["health_up"] = (
-                        float(target["profile"].get("health_up") or 0.0)
-                        + float(option.get("add_value") or 0.0)
-                    )
-        preset = self._preset(
-            kind="feast",
-            ref=str(stage.get("stage_id") or ""),
-            selected=[] if target is None else [target],
-            primary=target,
+        targets = feast_target_profiles(stage, difficulty, tuple(options.values())) if difficulty else []
+        return self._preset(
+            kind="feast", ref=str(stage.get("stage_id") or ""),
+            selected=targets, primary=targets[0] if targets else None,
             difficulty=None if not difficulty else int(difficulty["difficulty_id"]),
             options={key: value["option_id"] for key, value in options.items()},
         )
-        for option in options.values():
-            if option.get("effect_kind") == "resistance_up" and option.get("damage_type"):
-                damage_type = str(option["damage_type"])
-                preset["resistances"][damage_type] = (
-                    preset["resistances"].get(damage_type, 0.0)
-                    + float(option.get("add_value") or 0.0)
-                )
-                for profile in preset["selected_target_profiles"]:
-                    profile["resistances"][damage_type] = (
-                        profile["resistances"].get(damage_type, 0.0)
-                        + float(option.get("add_value") or 0.0)
-                    )
-        return preset
 
     @staticmethod
     def _preset(*, kind, ref, selected, primary, difficulty, options) -> dict[str, Any]:
@@ -741,8 +705,9 @@ class BattleTargetConditionSelector(QGroupBox):
         elif effect in {"health_up", "attack_up", "resistance_up"}:
             text = f"+{float(option.get('add_value') or 0.0) * 100:.0f}%"
         else:
-            text = str(option["option_id"])
-        return f"{text}（积分 {option.get('score', 0)}）"
+            text = str(option.get("description_zh") or option["option_id"])
+        score = option.get('score')
+        return f"{text}（积分 {score if score is not None else '未知'}）"
 
     @staticmethod
     def _set_combo_data(combo: NoWheelComboBox, wanted: object, key: str | None = None) -> None:

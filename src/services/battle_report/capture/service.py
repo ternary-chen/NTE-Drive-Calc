@@ -187,6 +187,8 @@ class BattleCaptureService:
         )
         client: BattleCoreClient | None = None
         capture_started = False
+        capture_was_started = False
+        startup_cancelled = False
         terminal_error: Exception | None = None
         persistence_outcome: BattleSummaryPersistenceOutcome | None = None
         final_payload_received = False
@@ -230,6 +232,7 @@ class BattleCaptureService:
             )
             self._packet_capture_waiting = not capture_started
             if capture_started:
+                capture_was_started = True
                 log_event("INFO", "battle_report.capture_started", "战报采集已就绪，开始监听",
                           self._operation_context, phase="running", source=source,
                           duration_ms=round((time.monotonic() - start_requested_at) * 1000, 2))
@@ -300,7 +303,10 @@ class BattleCaptureService:
             else:
                 empty_capture_discarded = True
         except Exception as error:
-            if isinstance(error, CancelledError) and self._stop_event.is_set() and client is None:
+            # UI 启动令牌可先于 stop_event 撤销，租约也可能已经创建。
+            # 仅尚未开始的明确取消正常退场；已开始后的读取/结算错误不能吞掉。
+            if isinstance(error, CancelledError) and not capture_was_started:
+                startup_cancelled = True
                 empty_capture_discarded = True
             else:
                 terminal_error = error
@@ -385,6 +391,8 @@ class BattleCaptureService:
                     "战报采集已结束，但未取得最终摘要，未保存记录。"
                 ),
             }.get(persistence_status, "战报采集已结束。")
+            if startup_cancelled:
+                message = "战报启动已取消，未保存记录。"
             if persistence_outcome is not None and persistence_outcome.warning_message:
                 message += persistence_outcome.warning_message
             native_warning = native_capture_end_warning(self._native_terminal, final_record)

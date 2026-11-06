@@ -25,11 +25,12 @@ def retain_scope_pending_snapshot(previous, candidate, attempt, record):
                                          for k in ("providerId", "domain", "domainKey"))))
 
     if (previous and previous.get("state") == "observed"
-            and "character_projection" in previous
-            and ((any(matches_first_domain(previous, domain) and not matches_first_domain(candidate, domain)
+            and (candidate.get("state") != "observed"
+                 or (any(matches_first_domain(previous, domain) and not matches_first_domain(candidate, domain)
                      for domain in ("character", "team")))
-                 or (team_configuration_unchanged(previous, attempt, record)
+                 or ("character_projection" in previous and team_configuration_unchanged(previous, attempt, record)
                      and not team_configuration_unchanged(candidate, attempt, record)))):
+        # 暂时读不到不抹去已有局部证据；保留只供后续核验，不把缺项提升为完整。
         return deepcopy(previous)
     return candidate
 
@@ -75,33 +76,44 @@ class NativeBattlePreparation:
 
 
 def observe_pinned_scopes(lease, record, attempts, final, stop_requested):
+    """租约持有待确认观测；每次尝试只发布一次冻结输入或结算缺项证据。"""
     changed = False
     for scope in tuple(lease._scope_snapshots):
         if scope not in attempts or lease._scope_snapshots[scope]["attempt_id"] != attempts[scope]["attemptId"]:
+            changed |= lease._scope_snapshots[scope]["snapshot"].get("binding") != "pending_first_hit"
             del lease._scope_snapshots[scope]
-            changed = True
     for scope, attempt in attempts.items():
         previous = lease._scope_snapshots.get(scope, {}).get("snapshot")
-        if previous and first_hit_snapshot_ready(previous, attempt, record):
+        # 已发布事实不随后续上下文重新读取；可用性由结算校验独立判断。
+        # 新尝试已在上方按身份清理，不会沿用前次冻结内容。
+        if previous and previous.get("binding") != "pending_first_hit":
             continue
-        references = attempt.get("configurationSnapshotRefs") or attempt.get("firstSnapshotRefs") or {}
-        frozen = lease._read_battle_snapshot(stop_requested, references=references)
+        if previous and first_hit_snapshot_ready(previous, attempt, record):
+            frozen = deepcopy(previous)
+        else:
+            references = attempt.get("configurationSnapshotRefs") or attempt.get("firstSnapshotRefs") or {}
+            frozen = lease._read_battle_snapshot(stop_requested, references=references)
         # 首击可能早于角色域完成读取；局部 pinned 响应不能永久阻止补齐。
         # 仅消费修订与首击证据一致的完整预备输入，不用结算背包冒充首击。
         if not first_hit_snapshot_ready(frozen, attempt, record):
             prepared = lease._preparation.take_matching(attempt, record)
             if prepared is not None:
                 frozen = prepared
-        if not final and frozen.get("state") == "unavailable":
-            continue
         if previous is not None:
             frozen = retain_scope_pending_snapshot(previous, frozen, attempt, record)
+        frozen = deepcopy(frozen)
+        ready = first_hit_snapshot_ready(frozen, attempt, record)
+        # 停止时仍缺项可保存实测逐击和缺失原因，但不能标成已确认首击配置。
+        frozen["binding"] = ("first_hit_revision" if ready else
+                             "unresolved_first_hit" if final else "pending_first_hit")
         if frozen != previous:
             lease._scope_snapshots[scope] = {"attempt_id": attempt["attemptId"], "snapshot": frozen}
-            changed = True
+            changed |= ready or final
     # 为下一次首击预热当前缓存，不替换已 pinned 的尝试；
     # 预备读取完成也不是本次采集启动的前提。
     if not final:
         lease._preparation.prepare(record, attempts, lambda: lease._read_battle_snapshot(
             stop_requested, require_current=True))
-    return {"state": "scoped", "scopes": deepcopy(lease._scope_snapshots)} if changed else None
+    published = {scope: entry for scope, entry in lease._scope_snapshots.items()
+                 if entry["snapshot"].get("binding") != "pending_first_hit"}
+    return {"state": "scoped", "scopes": deepcopy(published)} if changed else None

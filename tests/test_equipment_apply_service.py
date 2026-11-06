@@ -616,7 +616,7 @@ class EquipmentApplyServiceTests(unittest.TestCase):
             EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(self.plan_id)
         self.assertIsNone(self.sync.params)
 
-    def test_rejects_virtual_incomplete_plan_before_any_equipment_rpc(self) -> None:
+    def test_skips_virtual_only_plan_without_any_equipment_rpc(self) -> None:
         plan_id = self.dao.save_loadout_plan(
             name="虚拟补位方案",
             character_id=1003,
@@ -633,8 +633,13 @@ class EquipmentApplyServiceTests(unittest.TestCase):
             }],
         )
 
-        with self.assertRaisesRegex(EquipmentApplyError, "虚拟补位驱动"):
-            EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(plan_id)
+        result = EquipmentApplyService(self.dao, self.sync, operation_guard=lambda _: None).apply_plan(
+            plan_id, reset_before_apply=True,
+        )
+        self.assertTrue(result.skipped)
+        self.assertFalse(result.verified)
+        self.assertEqual(({'kind': 'module', 'reason': 'virtual'},), result.skipped_assignments)
+        self.assertEqual([], self.sync.unmount_calls)
         self.assertIsNone(self.sync.params)
 
     def test_rejects_snapshot_that_does_not_confirm_target_position(self) -> None:

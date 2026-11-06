@@ -483,6 +483,25 @@ class StaticGameProgressionCatalogTest(unittest.TestCase):
             ),
         )
 
+    def test_current_export_character_ids_preserve_membership_provenance(self) -> None:
+        for name in ("lottery_permanent", *self.builder.limited_lottery_sources):
+            properties = self.builder.rows[name]["Properties"]
+            properties["CharacterIds"] = properties.pop("CharacterIDs")
+        self.builder._import_progression_catalog()
+        memberships = set(self.connection.execute(
+            "SELECT character_id, acquisition_type FROM character_acquisition_membership"
+        ))
+        self.assertIn((1003, "permanent"), memberships)
+        self.assertIn((1004, "limited"), memberships)
+
+    def test_conflicting_export_character_ids_are_rejected(self) -> None:
+        from tools.game_data.static_database_build_support import StaticDatabaseError
+
+        properties = self.builder.rows["lottery_permanent"]["Properties"]
+        properties["CharacterIds"] = ["1004"]
+        with self.assertRaisesRegex(StaticDatabaseError, "字段冲突"):
+            self.builder._import_character_acquisition_memberships()
+
     def test_normalized_terms_keep_source_kind_and_relationship_provenance(self) -> None:
         self.builder._import_progression_catalog()
         self.connection.commit()

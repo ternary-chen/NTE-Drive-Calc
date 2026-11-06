@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from PySide6.QtCore import QRect, Qt
+from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import (
     QColor,
     QCursor,
@@ -31,6 +31,7 @@ class WarehouseResultCard(QWidget):
     """Paint one result with the same compact visual rules as the warehouse."""
 
     CARD_SIZE = WarehouseCardDelegate.CARD_SIZE
+    REVIEW_CARD_SIZE = QSize(CARD_SIZE.width(), 222)
 
     def __init__(
         self,
@@ -40,6 +41,8 @@ class WarehouseResultCard(QWidget):
         grade: str | None,
         direct_damage_score: float | None,
         split_metrics: bool = False,
+        ratio_only: bool = False,
+        score_ratio: float | None = None,
         replacement_callback: Callable[[], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -53,9 +56,11 @@ class WarehouseResultCard(QWidget):
             else float(direct_damage_score)
         )
         self.split_metrics = bool(split_metrics)
+        self.ratio_only, self.score_ratio = ratio_only, score_ratio
         self._replacement_callback = replacement_callback
         self._selected = False
-        self.setFixedSize(self.CARD_SIZE)
+        self.setFixedSize(self.REVIEW_CARD_SIZE if ratio_only else self.CARD_SIZE)
+        self.setFocusPolicy(Qt.StrongFocus if replacement_callback else Qt.NoFocus)
         owner_name = str(
             self.item_view.get("equipped_character_name") or ""
         ).strip()
@@ -69,6 +74,12 @@ class WarehouseResultCard(QWidget):
                 ("\n" if tooltip else "")
                 + f"当前装配方案持有者：{owner_name}"
             )
+        weighted = [f"{s['label']}：{s['weight']:g}" for s in [*(self.item_view.get('main_stats') or ()),
+                    *(self.item_view.get('sub_stats') or ())] if 'weight' in s]
+        if weighted:
+            tooltip += '\n冻结词条权重（灰、绿、蓝、金、橙递增）：\n' + '\n'.join(weighted)
+        if self.item_view.get('main_stats_at_max_level'):
+            tooltip += f"\n实际等级 {self.item_view.get('level', 0)}；主属性按满级预览"
         if tooltip:
             self.setToolTip(tooltip)
 
@@ -103,149 +114,11 @@ class WarehouseResultCard(QWidget):
         )
 
     def paintEvent(self, _event) -> None:
-        item = self.item_view
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        rect = self.rect().adjusted(4, 4, -4, -4)
-        painter.setBrush(QColor(theme_color("#161b22")))
-        painter.setPen(
-            QPen(
-                QColor(
-                    theme_color(
-                        "#58a6ff" if self._selected else "#30363d"
-                    )
-                ),
-                2 if self._selected else 1,
-            )
-        )
-        painter.drawRoundedRect(rect, 9, 9)
-
-        left = rect.left() + 12
-        top = rect.top() + 10
-        width = rect.width() - 24
-        quality_color = str(item.get("quality_color") or "#8b949e")
-        icon_rect = QRect(left, top, 44, 44)
-        pixmap = _equipment_item_pixmap(
-            str(item.get("item_icon_path") or "")
-        )
-        if pixmap.isNull() and not item.get("frozen_projection") and item.get("kind") == "core":
-            pixmap = warehouse_core_pixmap(
-                item.get("suit_id"), str(item.get("quality") or "gold")
-            )
-        if pixmap.isNull() and not item.get("frozen_projection") and item.get("kind") != "core":
-            pixmap = warehouse_shape_pixmap(
-                str(item.get("shape") or "H_3"),
-                str(item.get("quality") or "gold"),
-            )
-        if not pixmap.isNull():
-            painter.drawPixmap(icon_rect, pixmap)
-        else:
-            painter.setBrush(QColor(quality_color))
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(icon_rect.adjusted(8, 8, -8, -8))
-
-        avatar_rect = QRect(rect.right() - 48, top + 1, 36, 36)
-        if item.get("equipped"):
-            avatar = _equipped_owner_portrait(item, self.devicePixelRatioF())
-            if not avatar.isNull():
-                painter.drawPixmap(avatar_rect, avatar)
-
-        name_size = 10 if item.get("kind") == "core" else 11
-        header_reserved = 42 if item.get("equipped") else 0
-        WarehouseCardDelegate._text(
-            painter,
-            QRect(left + 52, top + 2, width - 52 - header_reserved, 20),
-            str(item.get("display_name") or item.get("item_name") or ""),
-            theme_color("#f0f6fc"),
-            name_size,
-            bold=True,
-        )
-        if item.get("level_known", True):
-            level = f"Lv.{item.get('level', 0)}"
-            max_level = int(item.get("max_level", 0) or 0)
-            if max_level:
-                level += f" / {max_level}"
-        else:
-            level = "等级未知"
-        WarehouseCardDelegate._text(
-            painter,
-            QRect(left + 52, top + 23, width - 52 - header_reserved, 16),
-            level,
-            quality_color,
-            9,
-        )
-
-        stats = [
-            *(item.get("main_stats") or ()),
-            *(item.get("sub_stats") or ()),
-        ]
-        content_top = top + 62
-        if not stats:
-            WarehouseCardDelegate._text(
-                painter,
-                QRect(left, content_top + 7, width, 18),
-                "暂无词条数据",
-                theme_color("#6e7681"),
-                10,
-            )
-        else:
-            for number, stat in enumerate(stats[:6]):
-                WarehouseCardDelegate._stat_row(
-                    painter,
-                    QRect(left, content_top + number * 20, width, 18),
-                    stat,
-                    main=bool(stat.get("main")),
-                )
-
-        footer_top = rect.bottom() - 29
-        score_text = (
-            "--"
-            if self.score is None
-            else f"{self.score:.1f}".rstrip("0").rstrip(".")
-        )
-        grade_text = self.grade or "--"
-        direct_text = (
-            f"{self.direct_damage_score:.1f}%"
-            if self.direct_damage_score is not None
-            else "--"
-        )
-        grade_color = GRADE_COLORS.get(self.grade, "#58a6ff")
-        if self.split_metrics:
-            gap = 5
-            metric_width = max(1, (width - gap * 2) // 3)
-            badges = (
-                (score_text, grade_color),
-                (grade_text, grade_color),
-                (direct_text, "#ffaa00"),
-            )
-            for index, (text, color) in enumerate(badges):
-                self._score_badge(
-                    painter,
-                    QRect(
-                        left + (metric_width + gap) * index,
-                        footer_top,
-                        metric_width,
-                        20,
-                    ),
-                    text,
-                    color,
-                )
-        else:
-            compact_score = (
-                f"{score_text}·{grade_text}" if self.grade else score_text
-            )
-            self._score_badge(
-                painter,
-                QRect(left, footer_top, 80, 20),
-                compact_score,
-                grade_color,
-            )
-            self._score_badge(
-                painter,
-                QRect(left + 85, footer_top, 62, 20),
-                direct_text,
-                "#ffaa00",
-            )
+        paint_warehouse_result_card(painter, self.rect(), self.item_view, score=self.score, grade=self.grade,
+                                    direct_damage_score=self.direct_damage_score, split_metrics=self.split_metrics,
+                                    selected=self._selected, device_pixel_ratio=self.devicePixelRatioF(),
+                                    ratio_only=self.ratio_only, score_ratio=self.score_ratio)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if (
@@ -256,3 +129,175 @@ class WarehouseResultCard(QWidget):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space) and self._replacement_callback:
+            self._replacement_callback()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
+def paint_warehouse_result_card(painter, bounds, item, *, score=None, grade="", direct_damage_score=None,
+                                split_metrics=False, selected=False, device_pixel_ratio=1.0,
+                                ratio_only=False, score_ratio=None, footer_note=""):
+    """仓库风格卡片的公共绘制入口，供 QWidget 和虚拟列表共用。"""
+    painter.setRenderHint(QPainter.Antialiasing)
+    rect = bounds.adjusted(4, 4, -4, -4)
+    painter.setBrush(QColor(theme_color("#161b22")))
+    painter.setPen(
+        QPen(
+            QColor(
+                theme_color(
+                    "#58a6ff" if selected else "#30363d"
+                )
+            ),
+            2 if selected else 1,
+        )
+    )
+    painter.drawRoundedRect(rect, 9, 9)
+
+    left = rect.left() + 12
+    top = rect.top() + 10
+    width = rect.width() - 24
+    quality_color = str(item.get("quality_color") or "#8b949e")
+    icon_rect = QRect(left, top, 44, 44)
+    pixmap = _equipment_item_pixmap(
+        str(item.get("item_icon_path") or "")
+    )
+    if pixmap.isNull() and not item.get("frozen_projection") and item.get("kind") == "core":
+        pixmap = warehouse_core_pixmap(
+            item.get("suit_id"), str(item.get("quality") or "gold")
+        )
+    if pixmap.isNull() and not item.get("frozen_projection") and item.get("kind") != "core":
+        pixmap = warehouse_shape_pixmap(
+            str(item.get("shape") or "H_3"),
+            str(item.get("quality") or "gold"),
+        )
+    if not pixmap.isNull():
+        painter.drawPixmap(icon_rect, pixmap)
+    else:
+        painter.setBrush(QColor(quality_color))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(icon_rect.adjusted(8, 8, -8, -8))
+
+    avatar_rect = QRect(rect.right() - 48, top + 1, 36, 36)
+    if item.get("recommended_character_name") or item.get("equipped"):
+        avatar_item = item
+        if item.get("recommended_character_name"):
+            avatar_item = {**item, "equipped_character_name": item["recommended_character_name"],
+                           "equipped_character_icon_path": item.get("recommended_character_icon_path")}
+        avatar = _equipped_owner_portrait(avatar_item, device_pixel_ratio)
+        if not avatar.isNull():
+            painter.drawPixmap(avatar_rect, avatar)
+
+    if item.get("recommended_character_name"):
+        WarehouseCardDelegate._text(painter, QRect(avatar_rect.left(), avatar_rect.bottom(), 40, 16),
+                                    "适配", theme_color("#58a6ff"), 8)
+
+    name_size = 10 if item.get("kind") == "core" else 11
+    header_reserved = 42 if item.get("recommended_character_name") or item.get("equipped") else 0
+    WarehouseCardDelegate._text(
+        painter,
+        QRect(left + 52, top + 2, width - 52 - header_reserved, 20),
+        str(item.get("display_name") or item.get("item_name") or ""),
+        theme_color("#f0f6fc"),
+        name_size,
+        bold=True,
+    )
+    if item.get("level_known", True):
+        level = f"Lv.{item.get('level', 0)}"
+        max_level = int(item.get("max_level", 0) or 0)
+        if max_level:
+            level += f" / {max_level}"
+    else:
+        level = "等级未知"
+    if item.get('main_stats_at_max_level'):
+        level = ''  # 统一口径由外层说明，卡片保留真实等级的悬停信息。
+    WarehouseCardDelegate._text(
+        painter,
+        QRect(left + 52, top + 23, width - 52 - header_reserved, 16),
+        level,
+        quality_color,
+        9,
+    )
+
+    stats = [
+        *(item.get("main_stats") or ()),
+        *(item.get("sub_stats") or ()),
+    ]
+    if ratio_only:
+        ratio = "未评估" if score_ratio is None else f"{score_ratio:.1%}"
+        WarehouseResultCard._score_badge(painter, QRect(left, top + 54, width, 20),
+                                         f"{grade or '未评估'} · {ratio}", GRADE_COLORS.get(grade, "#58a6ff"))
+    content_top = top + (83 if ratio_only else 62)
+    if not stats:
+        WarehouseCardDelegate._text(
+            painter,
+            QRect(left, content_top + 7, width, 18),
+            "暂无词条数据",
+            theme_color("#6e7681"),
+            10,
+        )
+    else:
+        for number, stat in enumerate(stats[:6]):
+            WarehouseCardDelegate._stat_row(
+                painter,
+                QRect(left, content_top + number * (18 if ratio_only else 20), width, 18),
+                stat,
+                main=bool(stat.get("main")),
+            )
+
+    footer_top = rect.bottom() - 29
+    if ratio_only:
+        WarehouseCardDelegate._text(painter, QRect(left, footer_top, width, 22),
+                                    footer_note, theme_color("#c9d1d9"), 9)
+        return
+    score_text = (
+        "--"
+        if score is None
+        else f"{score:.1f}".rstrip("0").rstrip(".")
+    )
+    grade_text = grade or "--"
+    direct_text = (
+        f"{direct_damage_score:.1f}%"
+        if direct_damage_score is not None
+        else "--"
+    )
+    grade_color = GRADE_COLORS.get(grade, "#58a6ff")
+    if split_metrics:
+        gap = 5
+        metric_width = max(1, (width - gap * 2) // 3)
+        badges = (
+            (score_text, grade_color),
+            (grade_text, grade_color),
+            (direct_text, "#ffaa00"),
+        )
+        for index, (text, color) in enumerate(badges):
+            WarehouseResultCard._score_badge(
+                painter,
+                QRect(
+                    left + (metric_width + gap) * index,
+                    footer_top,
+                    metric_width,
+                    20,
+                ),
+                text,
+                color,
+            )
+    else:
+        compact_score = (
+            f"{score_text}·{grade_text}" if grade else score_text
+        )
+        WarehouseResultCard._score_badge(
+            painter,
+            QRect(left, footer_top, 80, 20),
+            compact_score,
+            grade_color,
+        )
+        WarehouseResultCard._score_badge(
+            painter,
+            QRect(left + 85, footer_top, 62, 20),
+            direct_text,
+            "#ffaa00",
+        )

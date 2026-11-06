@@ -12,3 +12,5 @@ class WarehouseReadRequest:
     database_path: Path
     static_database_path: Path
     asset_root: Path
+    scoring_database_path: Path | None = None
+    config_dir: Path | None = None

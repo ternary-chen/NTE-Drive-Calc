@@ -29,6 +29,7 @@ from src.services.battle_report.timeline.clock import (
     ACTIVE_TIME_MODE,
     ELAPSED_TIME_MODE,
     BattleTimelineTimeMode,
+    menu_pause_intervals, visible_time_stop_intervals,
     project_timeline_time_us,
 )
 from src.features.battle_report.timeline.range import (
@@ -533,7 +534,7 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
             return
         source_kind = getattr(analysis, "time_stop_source_kind", "")
         inferred = "inferred" in source_kind
-        for start_us, end_us in analysis.time_stop_intervals:
+        for start_us, end_us in visible_time_stop_intervals(analysis):
             if start_us is None or end_us is None or end_us <= start_us:
                 continue
             if (
@@ -746,6 +747,7 @@ class BattleUnifiedTimelineWidget(BattleTimelineRangeMixin, QWidget):
             battle_start_us=analysis.battle_start_us,
             intervals=analysis.time_stop_intervals,
             mode=self._time_mode,
+            excluded_intervals=menu_pause_intervals(analysis),
         )
 
     def _draw_avatar(

@@ -122,13 +122,16 @@ def _show_fast_apply_identity_gaps(
     self: Any,
     requests: list[dict[str, Any]],
     applied: list[dict[str, Any]],
+    completion_details: str = "",
 ) -> None:
     """Report unresolved UIDs only after every independently runnable role ran."""
     missing_instances = [request for request in requests if _is_missing_character_instance_request(request)]
     ambiguous_instances = [request for request in requests if request not in missing_instances]
     lines = []
     if applied:
-        lines.append(f"已先完成 {len(applied)} 个可获取角色实例的极速装配。")
+        lines.append(f"已先下发 {len(applied)} 个可获取角色实例的装配指令。")
+    if completion_details:
+        lines.append(completion_details)
     if missing_instances:
         lines.append("以下角色尚未获取到可用的角色实例 UID，未执行极速装配：")
         lines.extend(f"• {request['role_name']}" for request in missing_instances)
@@ -296,9 +299,13 @@ def _start_nte_core_equipment_apply(
             return
         applied = report.get("applied") or []
         requests = report.get("identity_requests") or []
-        summary, role_details = build_fast_apply_completion_summary(applied)
+        skipped_roles = report.get("skipped_roles") or []
+        summary, role_details = build_fast_apply_completion_summary(applied, skipped_roles=skipped_roles)
+        has_skips = bool(skipped_roles) or any(row.get("skipped_assignments") for row in applied)
         confirmed_count = sum(bool(row.get("verified")) and not row.get("scoped_verified") for row in applied)
         partial_summary = f"此前已下发 {len(applied)} 个角色，其中 {confirmed_count} 个已确认"
+        if has_skips:
+            partial_summary = f"{summary}。确认仅针对本次可用装备。\n{role_details}"
         if report.get("failed_role"):
             error_message = str(report.get("error") or "未知错误")
             failure_kind = str(report.get("failure_kind") or "apply_error")
@@ -339,7 +346,7 @@ def _start_nte_core_equipment_apply(
                 _start_nte_core_equipment_apply(self, [], job_id=report["job_id"])
             return
         if requests:
-            _show_fast_apply_identity_gaps(self, requests, applied)
+            _show_fast_apply_identity_gaps(self, requests, applied, role_details if has_skips else "")
             refresh = getattr(self, "_refresh_equip", None)
             if callable(refresh):
                 refresh()
@@ -363,12 +370,19 @@ def _start_nte_core_equipment_apply(
                 "由于没有取得可靠的新快照，本次没有继续发送后续装配请求。",
             )
             return
+        task_note = f"\n任务 #{report['job_id']} 已保存日志。" if report.get("job_id") is not None else ""
         message = (
-            f"{summary}。\n任务 #{report.get('job_id')} 已保存日志。"
+            f"{summary}。{task_note}"
             f"\n\n{role_details}"
-            "\n\n极速装配可能会有装配遗漏，建议自行检查一遍，并对遗漏角色单独进行极速装配补足。"
         )
-        completion_box = QMessageBox(QMessageBox.Icon.Information, "装配完成", message, QMessageBox.StandardButton.Ok, self)
+        if applied:
+            message += "\n\n请核对游戏内实际装备；缺件需要补齐或重新计算后再装配。"
+        elif skipped_roles:
+            message += "\n\n请补齐装备或重新计算后再试。"
+        if has_skips:
+            message += "\n\n跳过的装备未装入；本次可用装备的确认不代表原方案完整装配。"
+        title = "部分装配结果" if has_skips and applied else "未执行装配" if skipped_roles else "装配完成"
+        completion_box = QMessageBox(QMessageBox.Icon.Information, title, message, QMessageBox.StandardButton.Ok, self)
         completion_box.setMinimumWidth(560)
         completion_box.exec()
         refresh = getattr(self, "_refresh_equip", None)
@@ -464,8 +478,9 @@ def _preview_nte_core_assemble_role(
         self,
         "极速装配",
         f"将通过游戏内装备插件把 [{role_name}] 的已保存方案直接装入游戏。\n\n"
-        "若当前已经是目标配装会立即完成，否则发送指令并等待稳定背包快照确认；"
-        "不需要切换到游戏配装页面。是否继续？",
+        "虚拟占位和背包中不存在的装备会跳过。存在可用装备时先卸空再装入，缺件处留空；"
+        "全部缺件则不卸装。\n\n"
+        "指令下发后会等待新观测复核，不需要切换到游戏配装页面。是否继续？",
         QMessageBox.Yes | QMessageBox.No,
         QMessageBox.No,
     )
@@ -510,6 +525,7 @@ def _preview_nte_core_assemble_all_roles(
                 return
             selections = selection_service.resolve(
                 selected_slot_ids,
+                defer_equipment_conflicts=True,
             )
             nte_slot_ids = []
             visual_roles = []
@@ -549,7 +565,9 @@ def _preview_nte_core_assemble_all_roles(
         self,
         "极速装配",
         f"将依次向本地组件发送 {len(selected_slot_ids)} 个角色的装配指令，"
-        "已经正确装配的角色会直接跳过，其余角色在稳定背包快照确认后再处理下一个。"
+        "虚拟占位和背包中不存在的装备会跳过；有可用装备的角色先卸空再装入，缺件处留空，"
+        "无可用装备的角色不卸装。"
+        "指令下发后会等待新观测复核。"
         "\n\n是否继续？",
         QMessageBox.Yes | QMessageBox.No,
         QMessageBox.No,

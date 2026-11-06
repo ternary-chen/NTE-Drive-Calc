@@ -158,10 +158,11 @@ class EquipmentApplyJobDaoMixin(UserDataDaoMixinHost):
         self._db().execute("INSERT INTO equipment_apply_job_log(job_id, created_at_utc, level, message) VALUES (?, ?, 'info', ?)", (raw_job_id, now, "失败角色已重置，等待重试"))
         self._db().commit()
 
-    def mark_equipment_apply_job_item(self, job_item_id: int, *, status: str, error: str | None = None, before_snapshot_id: int | None = None, after_snapshot_id: int | None = None, verified: bool = True) -> None:
+    def mark_equipment_apply_job_item(self, job_item_id: int, *, status: str, error: str | None = None, before_snapshot_id: int | None = None, after_snapshot_id: int | None = None, verified: bool = True, skipped_count: int = 0) -> None:
         if status not in {"running", "succeeded", "failed"}:
             raise UserDataValidationError("装配任务项状态无效")
         raw_item_id = _integer(job_item_id, "job_item_id", minimum=1)
+        skipped_count = _integer(skipped_count, "skipped_count", minimum=0)
         item = self._one("SELECT job_id, role_name FROM equipment_apply_job_item WHERE job_item_id = ?", (raw_item_id,))
         if item is None:
             raise UserDataValidationError("装配任务项不存在")
@@ -179,6 +180,10 @@ class EquipmentApplyJobDaoMixin(UserDataDaoMixinHost):
                 if verified
                 else (f"角色 [{item['role_name']}] 装配指令已下发，待下次稳定背包同步更新", "info")
             )
+            if skipped_count:
+                # succeeded表示本次可用子集处理完毕，不宣称已保存的原方案完整落地。
+                state = "可用装备已确认" if verified else "可用装备指令已下发，等待复核"
+                message = f"角色 [{item['role_name']}] 部分装配：{state}，已跳过 {skipped_count} 件"
         else:
             connection.execute("UPDATE equipment_apply_job_item SET status = 'failed', completed_at_utc = ?, last_error = ? WHERE job_item_id = ?", (now, str(error or "未知错误"), raw_item_id))
             connection.execute("UPDATE equipment_apply_job SET status = 'failed', last_error = ? WHERE job_id = ?", (str(error or "未知错误"), item["job_id"]))

@@ -62,6 +62,7 @@ from src.services.battle_report.timeline.clock import (
     ACTIVE_TIME_MODE,
     ELAPSED_TIME_MODE,
     BattleTimelineTimeMode,
+    menu_pause_intervals,
     project_timeline_time_us,
     projected_range_duration_us,
     unproject_timeline_time_us,
@@ -645,6 +646,7 @@ class BattleLongAnalysisView(
             battle_start_us=getattr(analysis, "battle_start_us", 0),
             intervals=getattr(analysis, "time_stop_intervals", ()),
             mode=self._time_mode,
+            excluded_intervals=menu_pause_intervals(analysis),
         )
 
     def _selected_display_duration_seconds(self) -> float:
@@ -656,6 +658,7 @@ class BattleLongAnalysisView(
             analysis.range_end_us,
             intervals=analysis.time_stop_intervals,
             mode=self._time_mode,
+            excluded_intervals=menu_pause_intervals(analysis),
         )
         return max(duration_us / 1_000_000.0, 0.001)
 
@@ -756,6 +759,7 @@ class BattleLongAnalysisView(
             battle_end_us=analysis.battle_end_us,
             intervals=analysis.time_stop_intervals,
             mode=self._time_mode,
+            excluded_intervals=menu_pause_intervals(analysis),
         )
         end = unproject_timeline_time_us(
             round(self.end_spin.value() * 1_000_000),
@@ -763,6 +767,7 @@ class BattleLongAnalysisView(
             battle_end_us=analysis.battle_end_us,
             intervals=analysis.time_stop_intervals,
             mode=self._time_mode,
+            excluded_intervals=menu_pause_intervals(analysis),
             prefer_interval_end=True,
         )
         if end > start:

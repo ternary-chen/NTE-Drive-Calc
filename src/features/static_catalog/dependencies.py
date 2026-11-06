@@ -26,6 +26,7 @@ from src.features.static_catalog.domain_pages.monsters.page import (
 )
 from src.features.static_catalog.page import StaticCatalogDomainPageSpec
 from src.features.static_catalog.providers.character import CharacterCatalogProvider
+from src.features.static_catalog.providers.reference_character import ReferenceCharacterProvider
 from src.features.static_catalog.providers.fork import ForkCatalogProvider
 from src.features.static_catalog.providers.formula_provider import (
     StaticCatalogCounterfactualProvider,
@@ -87,6 +88,8 @@ def build_static_catalog_providers(
         character = CharacterCatalogProvider(role_path)
         fork = ForkCatalogProvider(role_path)
         providers.extend((overview, character, fork))
+        reference_characters = ReferenceCharacterProvider(path)
+        providers.append(reference_characters)
         misc_items: list[StaticCatalogProvider] = []
         for key in ("equipment", "skills", "effects", "assets", "sources"):
             domain_path = path if key == "effects" else reference_path
@@ -107,6 +110,7 @@ def build_static_catalog_providers(
             overview,
             character,
             fork,
+            reference_characters,
             monster_provider,
             *misc,
             formula,

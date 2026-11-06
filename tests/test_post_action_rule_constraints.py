@@ -72,7 +72,7 @@ class PostActionRuleConstraintTests(unittest.TestCase):
         self.assertEqual([1004], normalized["lock"]["selected_character_ids"])
         self.assertIn("弃置模块", validate_post_action_config(normalized))
 
-    def test_direct_discard_is_normalized_planned_and_order_independent(self):
+    def test_direct_rules_use_first_match_before_scoring_modules(self):
         item = Drive(uid="rule-drive", quality="Gold", area=3, shape_id="H_3",
                      main_stats={"攻击力": 1.0, "生命值": 1.0}, sub_stats={"攻击力": 1.0}, role_scores={"角色": 0.0})
         scoring = SimpleNamespace(roles_db={})
@@ -95,16 +95,18 @@ class PostActionRuleConstraintTests(unittest.TestCase):
         scoring.get_grade_tag = lambda *_args: "D"
         self.assertEqual("discarded", target_state_for_item(item, "locked", normalized, scoring, score_context=MATCH_CONTEXT))
         normalized["discard"]["on_locked"] = "skip"
-        self.assertEqual("normal", target_state_for_item(item, "locked", normalized, scoring, score_context=MATCH_CONTEXT))
+        self.assertEqual("locked", target_state_for_item(item, "locked", normalized, scoring, score_context=MATCH_CONTEXT))
         scoring.get_grade_tag = lambda *_args: "SSS"
-        self.assertEqual("locked", target_state_for_item(item, "normal", normalized, scoring, score_context=MATCH_CONTEXT))
-        # 自定义展示顺序不是 first-hit；直接锁定 > 直接弃置 > 仅保留。
+        self.assertEqual("discarded", target_state_for_item(item, "normal", normalized, scoring, score_context=MATCH_CONTEXT))
+        # 上下重排改变首条命中动作；后面的锁定/弃置不能覆盖前面的明确决定。
         for ordered in permutations(rules):
             config["preserve_rules"] = list(ordered)
-            self.assertEqual("locked", target_state_for_item(item, "normal", config, scoring))
+            self.assertEqual({'keep': 'normal', 'discard': 'discarded', 'lock': 'locked'}[ordered[0]['action']],
+                             target_state_for_item(item, "normal", config, scoring))
         for ordered in permutations(rules[:2]):
             config["preserve_rules"] = list(ordered)
-            self.assertEqual("discarded", target_state_for_item(item, "normal", config, scoring))
+            self.assertEqual('discarded' if ordered[0]['action'] == 'discard' else 'normal',
+                             target_state_for_item(item, "normal", config, scoring))
 
     def test_catalog_exposes_strict_main_and_sub_stat_pools(self):
         catalog = StatCatalog.from_config_dir("config")

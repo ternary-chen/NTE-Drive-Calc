@@ -3,17 +3,43 @@ from __future__ import annotations
 
 import unittest
 import random
+from types import SimpleNamespace
+
+from src.domain.battle_report.timeline.events import BattleObservedTimeStopInterval
 
 from src.services.battle_report.timeline.clock import (
     ACTIVE_TIME_MODE,
     ELAPSED_TIME_MODE,
+    menu_pause_intervals,
     project_timeline_time_us,
     projected_range_duration_us,
     unproject_timeline_time_us,
+    visible_time_stop_intervals,
 )
 
 
 class BattleTimelineTimeServiceTests(unittest.TestCase):
+    def test_menu_is_hidden_in_both_modes_and_does_not_paint_as_skill_pause(self):
+        analysis = SimpleNamespace(time_stop_intervals=((2, 8),),
+            observed_typed_time_stop_intervals=(
+                BattleObservedTimeStopInterval(2, 4, 2),
+                BattleObservedTimeStopInterval(4, 6, 10),
+                BattleObservedTimeStopInterval(6, 8, 8),
+                BattleObservedTimeStopInterval(8, 9, None, "compacted_unknown")))
+        menus = menu_pause_intervals(analysis)
+        self.assertEqual(((2, 6),), menus)
+        self.assertEqual(((6, 8),), visible_time_stop_intervals(analysis))
+        for mode, expected in [(ELAPSED_TIME_MODE, 6), (ACTIVE_TIME_MODE, 4)]:
+            kwargs = dict(intervals=analysis.time_stop_intervals, mode=mode, excluded_intervals=menus)
+            self.assertEqual(expected, project_timeline_time_us(10, battle_start_us=0, **kwargs))
+            self.assertEqual(expected, projected_range_duration_us(0, 10, **kwargs))
+            self.assertEqual(10, unproject_timeline_time_us(expected,
+                battle_start_us=0, battle_end_us=10, **kwargs))
+        for prefer_end, expected in [(False, 2), (True, 6)]:
+            self.assertEqual(expected, unproject_timeline_time_us(2, battle_start_us=0,
+                battle_end_us=10, intervals=(), mode=ELAPSED_TIME_MODE,
+                excluded_intervals=menus, prefer_interval_end=prefer_end))
+
     def test_inverse_matches_exhaustive_integer_clock_with_overlaps_and_clipping(self):
         randomizer = random.Random(20260906)
         for _ in range(80):

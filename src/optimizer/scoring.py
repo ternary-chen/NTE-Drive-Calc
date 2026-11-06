@@ -168,7 +168,8 @@ class ScoringEngine:
             if user_dao is not None:
                 user_dao.close()
 
-    def prepare_scores(self, inventory, *, profiles=None, crit_priority_modes=None, checkpoint=None, assign_scores=False):
+    def prepare_scores(self, inventory, *, profiles=None, crit_priority_modes=None, checkpoint=None, assign_scores=False,
+                       cache_items=True):
         """批量预热同一冻结目录的公共 Rust 核；只组装原值，不在 Python 汇总分数。"""
         if profiles is None:
             configs = crit_priority_modes or {}
@@ -187,11 +188,16 @@ class ScoringEngine:
             for item in inventory:
                 item.role_scores = {}
         self._native_scores.prepare(inventory, profiles, checkpoint=checkpoint,
-                                    consume=consume if assign_scores else None)
+                                    consume=consume if assign_scores else None, cache_items=cache_items)
 
     def prepare_weight_queries(self, weights, names):
         profiles = [{"key": str(index), "weights": dict(row)} for index, row in enumerate(weights)]
-        self._native_scores.batch([], profiles, queries=tuple(names))
+        result = self._native_scores.batch([], profiles, queries=tuple(names))
+        return [row['weights'] for row in result['profiles']]
+
+    def get_grade_tags(self, score_area_pairs, *, checkpoint=None):
+        """列表评级走同一 Rust 公式，避免逐件重复冻结目录和调用组件。"""
+        return self._native_scores.grades(score_area_pairs, checkpoint=checkpoint)
 
     def max_theoretical_weight(self, weights, *, zero_weight_stats=None) -> float:
         return self._native_scores.maximum(weights, zero_weight_stats)

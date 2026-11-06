@@ -270,10 +270,15 @@ def optimize_frozen_axis(client, request, scorer, baseline_plans, frozen, *, che
         return _keep_baseline(baseline_plans, frozen, client, "基础完成，轴优化响应验收失败，请核对配套组件", status="failed", identity=identity)
 
 
-def verify_axis_postprocess_save(dao, rows, *, dataset_id, client, checkpoint=None):
+def verify_axis_postprocess_save(dao, rows, *, dataset_id, client, checkpoint=None, batch_rows=None):
     verify_optimization_batch_rows(rows, shared_axis=True)
     sources = {}
     provided = {row["role_name"] for row in rows}
+    # 基础方案已由保存事务独立验真，但仍属于同一批次的构筑依赖。
+    batch = rows if batch_rows is None else batch_rows
+    by_role = {row["role_name"]: row for row in batch}
+    if len(by_role) != len(batch):
+        raise RuntimeError("保存批次存在重复角色依赖，请重新计算。")
     for row in rows:
         metadata = (row.get("payload") or {}).get("damage_optimization") or {}
         preview = row.get("axis_preview_source")
@@ -285,7 +290,7 @@ def verify_axis_postprocess_save(dao, rows, *, dataset_id, client, checkpoint=No
         frozen = preview.inputs
         if frozen.selection.optimize_groups:
             linked = metadata.get("save_dependencies")
-            if not isinstance(linked, list) or not set(linked) <= provided:
+            if not isinstance(linked, list) or not set(linked) <= by_role.keys():
                 raise RuntimeError("跨角色交换的关联组须一起保存，不能只保存交换的一侧。")
             dependencies = metadata.get("shared_build_dependencies")
             expected = {(role, character_id) for role, character_id in frozen.role_character_ids
@@ -304,6 +309,18 @@ def verify_axis_postprocess_save(dao, rows, *, dataset_id, client, checkpoint=No
                     or not any(build["role"] == row["role_name"] and build["basis"] == "accepted"
                                and build["role_state"] == row.get("role_state") for build in builds)):
                 raise RuntimeError("共享轴目标缺少完整冻结构筑依赖或依赖已改变，请重新计算。")
+            # 名字相同不足以补齐依赖；基础成员须来自本作业并保持评价时的构筑。
+            frozen_builds = {build["role"]: build for build in builds}
+            for role in linked:
+                dependency = by_role[role]
+                build = frozen_builds.get(role)
+                dependency_meta = (dependency.get("payload") or {}).get("damage_optimization") or {}
+                if (build is None or dependency.get("character_id") != build["character_id"]
+                        or dependency.get("role_state") != build["role_state"]
+                        or dependency.get("snapshot_id") != row.get("snapshot_id")
+                        or dependency_meta.get("dataset_id") != dataset_id
+                        or dependency_meta.get("input_identity") != metadata.get("input_identity")):
+                    raise RuntimeError("关联成员的冻结构筑或预览身份与保存依赖不一致，请重新计算。")
         if (not frozen.selection.fixed_team_proof_json
                 or metadata.get("fixed_team_build_sha256") != json.loads(frozen.selection.fixed_team_proof_json)["fixed_build_sha256"]
                 or metadata.get("fixed_team_members") != json.loads(frozen.selection.fixed_team_members_json or "[]")):

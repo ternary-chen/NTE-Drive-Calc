@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
+from src.domain.equipment.intelligent_rules import merge_generated, policy_from_rules, remembered_drive_grade
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -27,7 +28,6 @@ from PySide6.QtWidgets import (
 from src.domain.post_actions import (
     DEFAULT_EXCLUDED_SET_NAMES,
     DEFAULT_EXCLUDED_SHAPE_IDS,
-    DEFAULT_PRESERVE_RULE,
     GRADE_ORDER,
     default_post_action_config,
     merge_post_action_config,
@@ -36,6 +36,8 @@ from src.domain.post_actions import (
 from src.domain.role_name_order import role_name_sort_key
 from src.storage.json_store import read_json, write_json
 from src.app.theme import themed_style
+from src.app.window_geometry import fit_dialog_to_available_screen
+from src.features.scanning.intelligent_budget_bar import IntelligentBudgetBar
 from src.integrations.bundled_resources import bundled_game_ui_asset_root
 from src.integrations.game_assets.catalog import GameUiAssetCatalog
 from src.services.accounts.settings import AccountSettingsService
@@ -164,33 +166,10 @@ def _load_role_options(
     return sorted(options, key=lambda item: (role_name_sort_key(item[1]), item[0]))
 
 
-def _rule_summary_values(values: list[str], limit: int = 2) -> str:
-    values = [str(value) for value in values if str(value)]
-    if len(values) <= limit:
-        return "、".join(values)
-    return "、".join(values[:limit]) + f" 等 {len(values)} 项"
+from src.features.scanning.post_action_summary import _preserve_rule_summary
 
 
-def _preserve_rule_summary(rule: dict) -> str:
-    parts = []
-    if rule.get("item_type") == "tape" and rule.get("main_stats"):
-        parts.append(f"主：{_rule_summary_values(rule['main_stats'])}")
-    if rule.get("sub_stats"):
-        raw_mode = rule.get("sub_match", "all")
-        if raw_mode == "all":
-            mode = "任意四个"
-        else:
-            try:
-                mode = {1: "任意一个", 2: "任意两个", 3: "任意三个", 4: "任意四个"}.get(int(raw_mode), "任意一个")
-            except (TypeError, ValueError):
-                mode = "任意一个"
-        parts.append(f"副：{_rule_summary_values(rule['sub_stats'])}（{mode}）")
-    if rule.get("required_sub_stats"):
-        parts.append(f"必含：{_rule_summary_values(rule['required_sub_stats'])}")
-    return "｜".join(parts) or "未设置词条条件"
-
-
-from src.features.scanning.preserve_rule_editor import PreserveRuleEditor
+from src.features.scanning.preserve_rule_actions import PreserveRuleActionsMixin
 
 
 from src.features.scanning.post_action_scope_dialogs import (
@@ -200,7 +179,7 @@ from src.features.scanning.post_action_scope_dialogs import (
 )
 
 
-class ScanPostActionDialog(QDialog):
+class ScanPostActionDialog(PreserveRuleActionsMixin, QDialog):
     def __init__(
         self,
         parent,
@@ -213,6 +192,7 @@ class ScanPostActionDialog(QDialog):
         window_title: str = "全量扫描管理",
         show_server_region_option: bool = True,
         role_suit_matching=None,
+        recommendation_callback=None,
     ):
         super().__init__(parent)
         self.user_config_dir = Path(user_config_dir)
@@ -221,6 +201,8 @@ class ScanPostActionDialog(QDialog):
         self.static_database_path = static_database_path
         self.asset_root = asset_root
         self._show_server_region_option = show_server_region_option
+        self.recommendation_callback = recommendation_callback
+        self.calculate_requested = False
         self.role_suit_matching = role_suit_matching
         self._matching_panel = None
         self._matching_committing = False
@@ -240,6 +222,7 @@ class ScanPostActionDialog(QDialog):
         self._range_values = {}
         self._preserve_rules = copy.deepcopy(self.config.get("preserve_rules", []))
         self._build_ui()
+        fit_dialog_to_available_screen(self, QSize(980, 700))
 
     def _style_toggle_button(self, button: QPushButton, checked: bool) -> None:
         button.setText("开启中" if checked else "关闭中")
@@ -292,9 +275,19 @@ class ScanPostActionDialog(QDialog):
             "QPushButton:hover{background:#388bfd;}"
         )
         add_button.clicked.connect(self._add_preserve_rule)
-        self._main_tabs.setCornerWidget(add_button, Qt.TopRightCorner)
-        add_button.setVisible(False)
-        self._main_tabs.currentChanged.connect(lambda index: add_button.setVisible(index == 1))
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 0, 0, 0)
+        if self.recommendation_callback is not None:
+            self._recommend_button = QPushButton('生成智能规则')
+            self._recommend_button.setObjectName('btnPrimary')
+            self._recommend_button.setToolTip('重新生成会移除全部智能规则并追加新规则，人工新增规则保留。')
+            self._recommend_button.clicked.connect(self._open_recommendation)
+            corner_layout.addWidget(self._recommend_button)
+        corner_layout.addWidget(add_button)
+        self._main_tabs.setCornerWidget(corner, Qt.TopRightCorner)
+        corner.setVisible(False)
+        self._main_tabs.currentChanged.connect(lambda index: corner.setVisible(index == 1))
 
         root.addWidget(self._main_tabs, 1)
 
@@ -302,7 +295,7 @@ class ScanPostActionDialog(QDialog):
         buttons.button(QDialogButtonBox.Save).setText("保存")
         buttons.button(QDialogButtonBox.Cancel).setText("取消")
         self._buttons = buttons
-        buttons.accepted.connect(self._save)
+        buttons.accepted.connect(self._save_only)
         buttons.rejected.connect(self.reject)
         bottom = QHBoxLayout()
         if self._matching_panel is not None:
@@ -316,8 +309,42 @@ class ScanPostActionDialog(QDialog):
             self._matching_busy(not panel.stack.isEnabled(), False)
         else:
             bottom.addStretch()
+        self._clear_smart_button = QPushButton('清空智能规则')
+        self._clear_smart_button.setToolTip('仅清空智能规则草稿，人工新增规则保留；保存后生效，可重新生成。')
+        self._clear_smart_button.clicked.connect(self._clear_intelligent_rules)
+        self._clear_smart_button.setEnabled(any(r.get('intelligent') for r in self._preserve_rules))
+        self._clear_smart_button.hide()
+        self._main_tabs.currentChanged.connect(lambda index: self._clear_smart_button.setVisible(index == 1))
+        bottom.addWidget(self._clear_smart_button)
         bottom.addWidget(buttons)
+        if self.recommendation_callback is not None:
+            calculate = QPushButton('保存并计算建议')
+            calculate.setObjectName('btnNew')
+            calculate.setEnabled(buttons.button(QDialogButtonBox.Save).isEnabled())
+            calculate.clicked.connect(self._save_for_calculation)
+            bottom.addWidget(calculate)
+            self._calculate_button = calculate
         root.addLayout(bottom)
+
+    def _open_recommendation(self):
+        panel = self._matching_panel
+        try:
+            generated = self.recommendation_callback(self, self._collect_config(), panel.draft if panel else None)
+        except Exception as error:
+            QMessageBox.warning(self, '规则未生成', str(error))
+            return
+        if generated is not None:
+            self._preserve_rules = merge_generated(self._preserve_rules, generated['rules'])
+            self.config['recommendation'] = generated['options']
+            self._render_preserve_rules()
+
+    def _save_for_calculation(self):
+        self.calculate_requested = True
+        self._save()
+
+    def _save_only(self):
+        self.calculate_requested = False
+        self._save()
 
     def _update_matching_footer(self, _index=None):
         panel = self._matching_panel
@@ -325,9 +352,17 @@ class ScanPostActionDialog(QDialog):
         panel.footer.setVisible(matching_visible)
         # 只有卡带编辑页使用内层保存/返回；其他页面仍走管理窗口的保存/取消。
         self._buttons.setVisible(not (matching_visible and panel.stack.currentIndex() == 1))
+        if hasattr(self, '_calculate_button'):
+            self._calculate_button.setVisible(self._buttons.isVisible())
 
     def _matching_busy(self, busy, committing):
+        if hasattr(self, '_clear_smart_button'):
+            self._clear_smart_button.setEnabled(not busy and any(r.get('intelligent') for r in self._preserve_rules))
+        if hasattr(self, "_recommend_button"):
+            self._recommend_button.setEnabled(not busy)
         self._matching_committing = committing
+        if hasattr(self, '_calculate_button'):
+            self._calculate_button.setEnabled(not busy)
         self._buttons.button(QDialogButtonBox.Save).setEnabled(not busy)
         self._buttons.button(QDialogButtonBox.Cancel).setEnabled(not committing)
         self._main_tabs.setEnabled(not committing)
@@ -367,6 +402,12 @@ class ScanPostActionDialog(QDialog):
         root = QVBoxLayout(page)
         root.setContentsMargins(0, 4, 0, 0)
         root.setSpacing(6)
+        self._budget_bar = IntelligentBudgetBar(lambda: self._preserve_rules, self._render_preserve_rules, page,
+            advice=lambda: self.config.get('recommendation', {}).get('initial_grade_advice'))
+        root.addWidget(self._budget_bar)
+        order_hint = QLabel('规则从上往下执行，首条命中决定动作；拖动可调整优先级，新智能规则追加在人工规则下方。')
+        order_hint.setWordWrap(True)
+        root.addWidget(order_hint)
 
         scroll = self._rules_scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -391,6 +432,10 @@ class ScanPostActionDialog(QDialog):
                 widget.deleteLater()
 
     def _render_preserve_rules(self) -> None:
+        if hasattr(self, '_clear_smart_button'):
+            self._clear_smart_button.setEnabled(any(r.get('intelligent') for r in self._preserve_rules))
+        self._budget_bar.refresh()
+        self._budget_bar.setVisible(self.recommendation_callback is not None or any(r.get('smart_kind') for r in self._preserve_rules))
         self._clear_layout(self._preserve_rules_layout)
         self._rule_rows = []
         if not self._preserve_rules:
@@ -421,7 +466,13 @@ class ScanPostActionDialog(QDialog):
         layout.addWidget(enabled)
         details = QVBoxLayout()
         details.setSpacing(3)
-        name = QLabel(str(rule.get("name") or "未命名规则"))
+        origin = rule.get('intelligent')
+        source = '（智能生成·已编辑）' if origin and origin.get('edited') else '（智能生成）' if origin else ''
+        name = QLabel(str(rule.get("name") or "未命名规则") + source)
+        name.setWordWrap(True)
+        if origin:
+            enabled.toggled.connect(lambda _checked, label=name, current=rule:
+                label.setText(str(current.get('name') or '未命名规则') + '（智能生成·已编辑）'))
         name.setStyleSheet(themed_style("font-weight:700;color:#c9d1d9"))
         summary = QLabel(_preserve_rule_summary(rule))
         summary.setStyleSheet(themed_style("color:#8b949e"))
@@ -433,7 +484,7 @@ class ScanPostActionDialog(QDialog):
         copy_button = QPushButton("复制")
         delete_button = QPushButton("删除")
         compact_height = edit_button.sizeHint().height()
-        item_type = "卡带" if rule.get("item_type") == "tape" else "驱动"
+        item_type = "动态" if rule.get('smart_kind') else "卡带" if rule.get("item_type") == "tape" else "驱动"
         type_badge = QLabel(item_type)
         type_badge.setFixedHeight(compact_height)
         type_badge.setStyleSheet(themed_style(
@@ -480,57 +531,6 @@ class ScanPostActionDialog(QDialog):
                     self._rules_scroll.ensureWidgetVisible(row)
             QTimer.singleShot(0, self, restore_focus)
 
-    def _set_preserve_rule_enabled(self, index: int, enabled: bool) -> None:
-        if 0 <= index < len(self._preserve_rules):
-            self._preserve_rules[index]["enabled"] = enabled
-
-    def _add_preserve_rule(self) -> None:
-        editor = PreserveRuleEditor(
-            self,
-            DEFAULT_PRESERVE_RULE,
-            self._shape_options,
-            self._set_options,
-            self.config_dir,
-        )
-        if editor.exec() != QDialog.Accepted:
-            return
-        rule = editor.result_rule()
-        if rule is not None:
-            self._preserve_rules.append(rule)
-            self._render_preserve_rules()
-
-    def _edit_preserve_rule(self, index: int) -> None:
-        if not 0 <= index < len(self._preserve_rules):
-            return
-        editor = PreserveRuleEditor(
-            self,
-            self._preserve_rules[index],
-            self._shape_options,
-            self._set_options,
-            self.config_dir,
-        )
-        if editor.exec() != QDialog.Accepted:
-            return
-        rule = editor.result_rule()
-        if rule is not None:
-            self._preserve_rules[index] = rule
-            self._render_preserve_rules()
-
-    def _duplicate_preserve_rule(self, index: int) -> None:
-        if not 0 <= index < len(self._preserve_rules):
-            return
-        duplicate = copy.deepcopy(self._preserve_rules[index])
-        duplicate["name"] = f"{duplicate.get('name') or '未命名规则'} 副本"
-        self._preserve_rules.insert(index + 1, duplicate)
-        self._render_preserve_rules()
-
-    def _delete_preserve_rule(self, index: int) -> None:
-        if not 0 <= index < len(self._preserve_rules):
-            return
-        if QMessageBox.question(self, "删除规则", "确定删除这条处理规则？") != QMessageBox.Yes:
-            return
-        del self._preserve_rules[index]
-        self._render_preserve_rules()
 
     def _module_help_text(self, key: str) -> str:
         if key == "discard":
@@ -727,11 +727,23 @@ class ScanPostActionDialog(QDialog):
                 module[field] = widgets[field].currentData()
             module["shape_ids"] = list(self._range_values[key]["shape_ids"])
             module["set_names"] = list(self._range_values[key]["set_names"])
+        config["recommendation"] = copy.deepcopy(self.config.get("recommendation", {}))
         config["preserve_rules"] = copy.deepcopy(self._preserve_rules)
+        grade = remembered_drive_grade(config)
+        if grade is None:
+            grade = remembered_drive_grade(self.config)
+        if grade is not None:
+            config['recommendation']['last_drive_grade'] = grade
         return merge_post_action_config(config)
 
     def _save(self) -> None:
         config = self._collect_config()
+        try:
+            policy_from_rules(config['preserve_rules'])
+        except ValueError as error:
+            self.calculate_requested = False
+            QMessageBox.warning(self, '规则无效', str(error))
+            return
         error = validate_post_action_config(config)
         if error:
             QMessageBox.warning(self, "配置无效", error)
@@ -759,6 +771,7 @@ def show_scan_post_action_dialog(
     window_title: str = "全量扫描管理",
     show_server_region_option: bool = True,
     role_suit_matching=None,
+    recommendation_callback=None,
 ) -> bool:
     dialog = ScanPostActionDialog(
         parent,
@@ -770,5 +783,6 @@ def show_scan_post_action_dialog(
         window_title=window_title,
         show_server_region_option=show_server_region_option,
         role_suit_matching=role_suit_matching,
+        recommendation_callback=recommendation_callback,
     )
     return dialog.exec() == QDialog.Accepted

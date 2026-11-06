@@ -72,3 +72,31 @@ def test_batch_cancellation_stops_before_dispatch_and_does_not_replace_cached_va
         with pytest.raises(NativeAnalysisCancelled):
             scoring.prepare_scores([drive, tape], checkpoint=cancelled)
         dispatch.assert_not_called()
+
+
+def test_grade_batch_preserves_duplicates_order_and_returns_values_beyond_cache_capacity():
+    scoring, client, _, _ = engine()
+    pairs = [(float(index), 15) for index in range(8200)]
+    with patch.object(client, 'score_equipment', wraps=client.score_equipment) as dispatch:
+        grades = scoring.get_grade_tags([*pairs, pairs[0], pairs[9]])
+        assert dispatch.call_count == 3  # 协议每批最多 4096，不逐条启动组件。
+        assert grades[0] == grades[-2] == 'D'
+        assert grades[9] == grades[-1]
+        assert grades[-3] == 'ACE'
+    for index in (0, 900, 4095, 8199):
+        assert grades[index] == scoring.get_grade_tag(*pairs[index])
+    with patch.object(client, 'score_equipment', wraps=client.score_equipment) as dispatch:
+        def cancel():
+            raise NativeAnalysisCancelled('cancelled')
+        with pytest.raises(NativeAnalysisCancelled):
+            scoring.get_grade_tags([(1.234, 2)], checkpoint=cancel)
+        dispatch.assert_not_called()
+
+
+def test_bulk_only_consumer_keeps_scores_and_returns_frozen_weight_matrix():
+    scoring, client, drive, tape = engine()
+    scoring.prepare_scores([drive,tape],assign_scores=True,cache_items=False)
+    assert drive.role_scores=={'A':40.0,'B':40.0}
+    matrix=scoring.prepare_weight_queries([scoring.roles_db['A']['weights']],['攻击力%','暴击率%'])
+    assert matrix==[[1.0,2.0]]
+    assert scoring.calculate_drive_score(drive,scoring.roles_db['A']['weights'],3.0)==40.0

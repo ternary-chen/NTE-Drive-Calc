@@ -3,6 +3,9 @@
 本文件只保留尚未完成且会影响数据结构、外部能力或产品边界的工作。完成并通过公共行为测试后，将稳定
 事实整合进 `features.md` 或 `architecture.md`，随后从本文删除。
 
+仓库智能推荐的源码界面与试算已接入；真实游戏验收、更多仓库与额外分配约束覆盖见
+[仓库智能推荐后续验证](roadmap/warehouse-recommendation.md)。
+
 计算文案、头像拖拽与环境检测/升级引导的交互复查纳入[复审方案](roadmap/architecture-post-refactor-review.md)，真实窗口验收仍按 [Windows 验收](validation/windows.md) 记录。
 
 扫描后状态管理的单件问题跳过与结束汇总已接入源码，专项与实机验收待运行；不调整扫描识别或定位，当前行为见

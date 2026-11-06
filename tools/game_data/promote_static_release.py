@@ -190,7 +190,7 @@ def validate_source_files(
         )
 
 
-def _write_manifest_atomic(database_path: Path, manifest_path: Path) -> None:
+def _write_manifest_atomic(database_path: Path, manifest_path: Path, export_quality=None) -> None:
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     handle, temporary_name = tempfile.mkstemp(
         prefix=f".{manifest_path.name}.", suffix=".tmp", dir=manifest_path.parent
@@ -198,7 +198,10 @@ def _write_manifest_atomic(database_path: Path, manifest_path: Path) -> None:
     os.close(handle)
     temporary = Path(temporary_name)
     try:
-        write_static_manifest(database_path, temporary)
+        manifest = write_static_manifest(database_path, temporary)
+        if export_quality is not None:
+            manifest["export_quality"] = export_quality
+            temporary.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         os.replace(temporary, manifest_path)
     except BaseException:
         temporary.unlink(missing_ok=True)
@@ -250,6 +253,8 @@ def validate_manifest(
         )
     if int(build_tool.get("importer_version") or 0) != summary["importer_version"]:
         raise StaticReleasePromotionError("候选 manifest 的 importer_version 不一致")
+    if "export_quality" in summary and manifest.get("export_quality") != summary["export_quality"]:
+        raise StaticReleasePromotionError("候选 manifest 的解包缺口声明不一致")
     return manifest
 
 
@@ -316,6 +321,8 @@ def refresh_final_report(
         "database_counts": counts,
         "foreign_key_violations": [],
     }
+    if "export_quality" in summary:
+        report["export_quality"] = summary["export_quality"]
     _write_text_atomic(
         report_path,
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
@@ -362,6 +369,8 @@ def validate_final_report(
         "database_counts": counts,
         "foreign_key_violations": [],
     }
+    if "export_quality" in summary:
+        expected["export_quality"] = summary["export_quality"]
     actual = {key: report.get(key) for key in expected}
     if actual != expected:
         raise StaticReleasePromotionError(
@@ -496,6 +505,13 @@ def _validate_candidate_database(
             ) from exc
     else:
         validate_source_files(summary["source_files"], content_root)
+    from tools.game_data.static_export_quality import validate_export_quality
+    try:
+        quality = validate_export_quality(config, content_root, summary["source_files"], database_path)
+        if quality is not None:
+            summary["export_quality"] = quality
+    except (OSError, ValueError, TypeError) as exc:
+        raise StaticReleasePromotionError(f"解包来源质量校验失败：{exc}") from exc
     return {
         "candidate_dir": candidate_dir,
         "database_path": database_path,
@@ -525,7 +541,7 @@ def finalize_candidate(
     manifest_path = Path(candidate["manifest_path"])
     report_path = Path(candidate["report_path"])
     summary = dict(candidate["summary"])
-    _write_manifest_atomic(database_path, manifest_path)
+    _write_manifest_atomic(database_path, manifest_path, summary.get("export_quality"))
     manifest = validate_manifest(database_path, manifest_path, summary)
     refresh_final_report(database_path, report_path, summary)
     report = validate_final_report(database_path, report_path, summary)

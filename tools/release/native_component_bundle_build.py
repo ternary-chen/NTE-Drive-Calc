@@ -40,6 +40,7 @@ NATIVE_NOTICES = frozenset({
 DEPENDENCY_NOTICE_NAMES = frozenset({
     "LICENSE", "LICENSE.txt", "LICENSE-APACHE", "LICENSE-MIT", "LICENSE-THIRD-PARTY",
     "LICENSE-UNICODE", "COPYING", "PACKAGE_NOTICE.md", "license-apache-2.0", "license-mit",
+    "package-license.json",
 })
 
 

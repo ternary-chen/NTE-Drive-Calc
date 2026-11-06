@@ -19,8 +19,8 @@ from src.domain.battle_report.analysis.backend_contracts import BuffProjectionBa
 
 REQUEST_SCHEMA = "nte-analysis-request-v1"
 RESPONSE_SCHEMA = "nte-analysis-response-v1"
-ENGINE_VERSION = "0.3.7"
-CURRENT_PROTOCOL_ENGINE_VERSIONS = frozenset({"0.3.0", "0.3.1", "0.3.2", "0.3.3", "0.3.4", "0.3.5", "0.3.6", ENGINE_VERSION})
+ENGINE_VERSION = "0.3.9"
+CURRENT_PROTOCOL_ENGINE_VERSIONS = frozenset({"0.3.0", "0.3.1", "0.3.2", "0.3.3", "0.3.4", "0.3.5", "0.3.6", "0.3.7", "0.3.8", ENGINE_VERSION})
 SUPPORTED_ENGINE_VERSIONS = CURRENT_PROTOCOL_ENGINE_VERSIONS | {"0.2.0"}
 MAX_BYTES = 64 * 1024 * 1024
 MAX_JOBS = 100_000

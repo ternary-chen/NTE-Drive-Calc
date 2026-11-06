@@ -54,6 +54,13 @@ def execute_plan(
     )
     effective_character_id = int(plan["character_id"] if target_character_id is None else target_character_id)
     assignments = plan["assignments"]
+    if not assignments:
+        # 无可用目标时不解析角色实例、不卸空，也不把空集合报告为装配成功。
+        return EquipmentApplyResult(
+            plan_id=plan["plan_id"], before_snapshot_id=before_snapshot_id,
+            after_snapshot_id=before_snapshot_id, character_uid={},
+            rpc_result={"status": "skipped"}, verified=False, skipped=True,
+        )
     modules = [item for item in assignments if item["kind"] == "module"]
     cores = [item for item in assignments if item["kind"] == "core"]
 
@@ -165,6 +172,8 @@ def execute_plan(
                     placements=placements,
                     core=_item_uid(core_item),
                     timeout=timeout,
+                ) if placements else self.sync_service.equip_core(
+                    character=resolved_character_uid, equipment=_item_uid(core_item),
                 ),
                 operation="一键装配",
             )
@@ -306,6 +315,9 @@ def execute_fast_plan(
                     placements=placements,
                     core={"slot": core_assignment["uid_slot"], "serial": core_assignment["uid_serial"]},
                     timeout=timeout,
+                ) if placements else service.sync_service.equip_core(
+                    character=character_uid,
+                    equipment={"slot": core_assignment["uid_slot"], "serial": core_assignment["uid_serial"]},
                 ),
                 operation="一键装配",
                 step="one_key",

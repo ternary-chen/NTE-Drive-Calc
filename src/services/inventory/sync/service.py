@@ -326,6 +326,10 @@ class InventorySyncService:
         return client.equip_module(
             character=character, equipment=equipment, row=row, column=column,
         )
+    def equip_core(self, *, character: Mapping[str, Any], equipment: Mapping[str, Any]) -> Any:
+        """缺件筛选后仅剩卡带时，使用正式单件接口，不发送空驱动的一键请求。"""
+        return self._equipment_client().equip_core(character=character, equipment=equipment)
+
     def unequip_module(
         self,
         *,

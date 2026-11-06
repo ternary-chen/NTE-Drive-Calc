@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.services.battle_report.analysis.metrics import project_report_metrics
+from src.domain.battle_report.timeline.events import BattleObservedTimeStopInterval
 
 
 def case():
@@ -48,3 +49,14 @@ def test_no_confirmed_void_attempt_preserves_existing_summary_policy():
     analysis.discarded_attempt_intervals = ()
     result = project_report_metrics(summary, analysis)
     assert (result.damage, result.damage_taken) == (100.0, 99.0)
+
+
+def test_menu_is_excluded_from_real_and_effective_metrics_without_double_subtraction():
+    summary, analysis = case()
+    analysis.discarded_attempt_intervals = ()
+    analysis.observed_typed_time_stop_intervals = (BattleObservedTimeStopInterval(2_000_000, 6_000_000, 2),)
+    result = project_report_metrics(summary, analysis)
+    assert (result.duration, result.real_duration) == (5.0, 6.0)
+    analysis.time_stop_source_kind = "nte_core_partial"
+    result = project_report_metrics(summary, analysis)
+    assert result.duration == result.real_duration == 6.0

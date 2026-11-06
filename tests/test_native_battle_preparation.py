@@ -27,15 +27,16 @@ def test_pinned_warmup_requires_live_domains_but_preserves_existing_first_hit():
 def test_partial_pinned_scope_can_use_same_revision_preparation_but_never_later_configuration():
     from types import SimpleNamespace
     from src.services.battle_report.inputs.preparation import observe_pinned_scopes
-    record = waiting()
+    record = {"native_capture": {"providerId": "fixture"}}
     partial = {"state": "observed", "domains": {"team": native_snapshot()["domains"]["team"]},
                "retention": "dll_pinned"}
     preparation = NativeBattlePreparation()
-    lease = SimpleNamespace(_scope_snapshots={"combat": {"attempt_id": "1", "snapshot": partial}},
+    lease = SimpleNamespace(_scope_snapshots={},
                             _preparation=preparation, _read_battle_snapshot=lambda *a, **kw: partial)
     preparation.snapshot = native_snapshot()
     preparation.snapshot["domains"]["character"]["revision"] = "later"
-    assert observe_pinned_scopes(lease, record, {"combat": attempt()}, True, None) is None
+    # 尚未结束时允许继续等待；结算只发布一次，不能在已结算后补换快照。
+    assert observe_pinned_scopes(lease, record, {"combat": attempt()}, False, None) is None
     preparation.snapshot = native_snapshot()
     result = observe_pinned_scopes(lease, record, {"combat": attempt()}, True, None)
     assert result["scopes"]["combat"]["snapshot"]["character_projection"]
@@ -52,9 +53,10 @@ def test_later_pinned_reference_is_retried_after_partial_first_response():
         return native_snapshot() if kwargs["references"] else {"state": "observed", "domains": {}}
     lease = SimpleNamespace(_scope_snapshots={}, _preparation=NativeBattlePreparation(), _read_battle_snapshot=read)
     evidence = attempt()
-    observe_pinned_scopes(lease, waiting(), {"combat": evidence}, True, None)
+    record = {"native_capture": {"providerId": "fixture"}}
+    assert observe_pinned_scopes(lease, record, {"combat": evidence}, False, None) is None
     evidence["configurationSnapshotRefs"] = {"character": {"snapshotId": "late"}}
-    result = observe_pinned_scopes(lease, waiting(), {"combat": evidence}, True, None)
+    result = observe_pinned_scopes(lease, record, {"combat": evidence}, True, None)
     assert reads == [{}, {"character": {"snapshotId": "late"}}]
     assert result["scopes"]["combat"]["snapshot"]["character_projection"]
 

@@ -49,7 +49,7 @@ def save_allocation_plans(*, database_path, static_database_path, static_identit
             verify_direct_group_save(dao, group_rows, dataset_id=release.dataset_id)
         if axis_rows:
             verify_axis_postprocess_save(dao, axis_rows, dataset_id=release.dataset_id,
-                                         client=axis_analysis_client, checkpoint=checkpoint)
+                                         client=axis_analysis_client, checkpoint=checkpoint, batch_rows=rows)
     reader = StaticCatalogReleaseReader()
     # 同一拒写pin覆盖准备、暂存和真实commit；共享旧DAO连接不参与来源许可。
     with UserDataDao(database_path) as user_dao, static_catalog_commit_unit(release.database_path, expected_release=release) as unit:

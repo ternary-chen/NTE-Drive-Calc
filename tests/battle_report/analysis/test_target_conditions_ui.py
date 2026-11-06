@@ -22,7 +22,8 @@ class BattleTargetConditionUiTests(unittest.TestCase):
             selector.environment_combo.findData("feast")
         )
         selector.feast_stage_combo.setCurrentIndex(
-            selector.feast_stage_combo.count() - 1
+            next(i for i in range(selector.feast_stage_combo.count())
+                 if selector.feast_stage_combo.itemData(i)["stage_id"] == "DiyBossStage8")
         )
         selector.feast_difficulty_combo.setCurrentIndex(3)
         for combo in selector._feast_option_combos.values():
@@ -33,8 +34,9 @@ class BattleTargetConditionUiTests(unittest.TestCase):
 
         self.assertEqual("DiyBossStage8", preset["environment_ref"])
         self.assertEqual(4, preset["difficulty_id"])
-        self.assertEqual(1050.0, preset["enemy_defense_base"])
-        self.assertEqual(0.5, preset["resistances"]["psyche"])
+        # 正式服当前 Stage8 极难为 77 级墨菲克斯，静态档案防御为 1062。
+        self.assertEqual(1062.0, preset["enemy_defense_base"])
+        self.assertEqual(0.5, preset["resistances"]["cosmos"])
         self.assertEqual("DamageUpGeneralBase", preset["witch_buff_property_id"])
 
         restored = BattleTargetCondition(
@@ -66,7 +68,7 @@ class BattleTargetConditionUiTests(unittest.TestCase):
         restored_preset = restored_selector.current_preset()
 
         self.assertEqual(preset["feast_options"], restored_preset["feast_options"])
-        self.assertEqual(0.5, restored_preset["resistances"]["psyche"])
+        self.assertEqual(0.5, restored_preset["resistances"]["cosmos"])
 
         panel = BattleTargetVitalPanel()
         panel.set_catalog(catalog)
@@ -74,7 +76,8 @@ class BattleTargetConditionUiTests(unittest.TestCase):
             panel.condition_selector.environment_combo.findData("feast")
         )
         panel.condition_selector.feast_stage_combo.setCurrentIndex(
-            panel.condition_selector.feast_stage_combo.count() - 1
+            next(i for i in range(panel.condition_selector.feast_stage_combo.count())
+                 if panel.condition_selector.feast_stage_combo.itemData(i)["stage_id"] == "DiyBossStage8")
         )
         panel.condition_selector.feast_difficulty_combo.setCurrentIndex(3)
         panel.defense_reduction_spin.setValue(12.5)
@@ -86,7 +89,7 @@ class BattleTargetConditionUiTests(unittest.TestCase):
         self.assertEqual(4, emitted[0]["difficulty_id"])
         self.assertEqual(0.125, emitted[0]["defense_reduction"])
         self.assertEqual(
-            ["boss_05_BP_DiyBoss"],
+            ["mon_48_BP_Diy"],
             list(emitted[0]["selected_target_ids"]),
         )
 

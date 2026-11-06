@@ -281,6 +281,7 @@ def verify_complete_snapshot(
             before_snapshot_id=None,
             after_snapshot_id=snapshot_id,
             verified=True,
+            skipped_count=len(row.get("skipped_assignments") or ()),
         )
     return unresolved
 
@@ -381,6 +382,7 @@ def verify_scoped_equipment_events(
             before_snapshot_id=None,
             after_snapshot_id=None,
             verified=True,
+            skipped_count=len(row.get("skipped_assignments") or ()),
         )
     return unresolved
 

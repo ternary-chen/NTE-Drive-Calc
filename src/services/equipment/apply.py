@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from copy import deepcopy
 import time
 from typing import Any, Protocol
@@ -51,6 +51,8 @@ class _LiveInventorySync(Protocol):
 
     def equip_module(self, **kwargs: Any) -> Any: ...
 
+    def equip_core(self, **kwargs: Any) -> Any: ...
+
     def unequip_module(self, **kwargs: Any) -> Any: ...
 
     def unequip_core(self, **kwargs: Any) -> Any: ...
@@ -75,6 +77,8 @@ class EquipmentApplyResult:
     rpc_result: Any
     verified: bool = True
     already_applied: bool = False
+    skipped_assignments: tuple[dict[str, Any], ...] = ()
+    skipped: bool = False
 
 
 def _uid(value: Mapping[str, Any], field: str) -> dict[str, int]:
@@ -148,6 +152,8 @@ class EquipmentApplyService:
                 int(role["plan_id"]), stable_snapshot_id=stable_snapshot_id,
             )
             validated.append((role_name, plan))
+            if not plan["assignments"]:
+                continue
             role_targets = [
                 {
                     "character_uid": role["character_uid"],
@@ -353,29 +359,22 @@ class EquipmentApplyService:
 
     @staticmethod
     def _validate_native_plan_assignments(plan: Mapping[str, Any]) -> tuple[list[dict], list[dict]]:
-        """在任何RPC前排除视觉虚拟补位并校验原生方案的装备组成。"""
+        """校验保存方案的组成；缺件筛选仅在本轮首次冻结时进行。"""
 
-        # status是保存/展示状态，不是执行能力。旧incomplete驱动方案仍须逐UID校验，
-        # 且只装配真实驱动，不借此改变角色当前卡带。
+        # status是保存/展示状态，不是执行能力；旧incomplete方案也逐项筛选和校验。
         assignments = list(plan.get("assignments") or ())
         modules = [item for item in assignments if item.get("kind") == "module"]
         cores = [item for item in assignments if item.get("kind") == "core"]
-        for assignment in assignments:
-            raw_assignment = assignment.get("raw_assignment")
-            virtual = isinstance(raw_assignment, Mapping) and bool(raw_assignment.get("virtual"))
-            if virtual or int(assignment.get("uid_slot") or 0) <= 0:
-                raise EquipmentApplyError(
-                    "方案包含虚拟补位驱动（slot=0），它不属于真实背包，不能极速装配；"
-                    "请重新计算并保存完整方案"
-                )
         if not 1 <= len(modules) <= 64 or len(cores) > 1:
             raise EquipmentApplyError("装配方案必须包含 1..64 个驱动，且至多包含 1 个核心")
+        if len(modules) + len(cores) != len(assignments):
+            raise EquipmentApplyError("方案包含未知装备类型")
         return modules, cores
 
     def validate_plan_for_fast_apply(
         self, plan_id: int, *, stable_snapshot_id: int,
     ) -> dict[str, Any]:
-        """首条RPC前校验整份方案与固定库存的真实UID，避免执行一半才发现虚拟补位。"""
+        """冻结可用子集；后续校验不得把执行中消失的目标再次静默跳过。"""
 
         snapshot_id = int(stable_snapshot_id)
         if self.user_dao.inventory_snapshot_summary(snapshot_id) is None:
@@ -383,19 +382,44 @@ class EquipmentApplyService:
         plan = self.read_plan(plan_id)
         if plan is None:
             raise EquipmentApplyError(f"装配方案 {plan_id} 不存在")
-        modules, cores = self._validate_native_plan_assignments(plan)
         inventory_by_uid = {
             (item["uid_serial"], item["uid_slot"]): item
             for item in self.user_dao.list_inventory_items(snapshot_id)
         }
-        for assignment in modules:
+        frozen = int(plan_id) in self._frozen_plans
+        if not frozen:
+            self._validate_native_plan_assignments(plan)
+        selected, skipped = [], list(plan.get("skipped_assignments") or ())
+        seen = set()
+        for assignment in plan["assignments"]:
             uid_pair = (assignment["uid_serial"], assignment["uid_slot"])
-            if inventory_by_uid.get(uid_pair, {}).get("kind") != "module":
-                raise EquipmentApplyError(f"方案驱动 UID {uid_pair} 不在当前稳定背包中")
-        for assignment in cores:
-            uid_pair = (assignment["uid_serial"], assignment["uid_slot"])
-            if inventory_by_uid.get(uid_pair, {}).get("kind") != "core":
-                raise EquipmentApplyError(f"方案核心 UID {uid_pair} 不在当前稳定背包中")
+            raw = assignment.get("raw_assignment") or {}
+            virtual = bool(raw.get("virtual")) or int(assignment.get("uid_slot") or 0) <= 0
+            if not virtual:
+                _item_uid(assignment)
+            item = inventory_by_uid.get(uid_pair)
+            if not frozen and (virtual or item is None):
+                skipped.append({"kind": assignment["kind"], "reason": "virtual" if virtual else "missing"})
+                continue
+            if item is None:
+                raise EquipmentApplyError("本轮已冻结的目标装备不在当前稳定背包中，请同步后重新发起装配")
+            if item.get("kind") != assignment["kind"]:
+                raise EquipmentApplyError("方案装备类型与当前稳定背包不一致")
+            if uid_pair in seen:
+                raise EquipmentApplyError("方案中存在重复装备 UID")
+            seen.add(uid_pair)
+            if assignment.get("rotation") not in (None, 0):
+                raise EquipmentApplyError("nte-core 一键装配不接受旋转参数")
+            if assignment["kind"] == "module" and (
+                assignment.get("target_row") not in range(1, 6)
+                or assignment.get("target_column") not in range(1, 6)
+            ):
+                raise EquipmentApplyError("驱动位置必须在 1..5")
+            selected.append(assignment)
+        plan["assignments"] = selected
+        plan["skipped_assignments"] = skipped
+        # 仅缓存本次执行副本，不覆盖账号中已保存方案或它的历史评分。
+        self._frozen_plans[int(plan_id)] = deepcopy(plan)
         return plan
 
     def verify_plan_in_snapshot(
@@ -411,15 +435,17 @@ class EquipmentApplyService:
         """只检查稳定快照，不发送任何装备或卸装指令。"""
 
         snapshot_id = int(stable_snapshot_id)
-        plan = self.validate_plan_for_fast_apply(
-            plan_id, stable_snapshot_id=snapshot_id,
-        )
+        plan = self.read_plan(plan_id)
+        if plan is None:
+            raise EquipmentApplyError("指定的装配方案不存在")
         effective_character_id = int(
             plan["character_id"]
             if target_character_id is None
             else target_character_id
         )
         assignments = plan["assignments"]
+        if not assignments:
+            return "方案没有可用装备，本次未执行装配"
         modules = [item for item in assignments if item["kind"] == "module"]
         cores = [item for item in assignments if item["kind"] == "core"]
         resolved_character_uid = self.resolve_character_uid(
@@ -473,6 +499,8 @@ class EquipmentApplyService:
         if plan is None:
             raise EquipmentApplyError("指定的装配方案不存在")
         assignments = plan.get("assignments") or ()
+        if not assignments:
+            return "方案没有可用装备，本次未执行装配"
         modules = [item for item in assignments if item.get("kind") == "module"]
         cores = [item for item in assignments if item.get("kind") == "core"]
         resolved_uid = _uid(character_uid, "character_uid")
@@ -511,9 +539,11 @@ class EquipmentApplyService:
         from .execution import execute_plan
 
         self.dispatch_started = False
-        return execute_plan(
+        result = execute_plan(
             self, plan_id, character_uid=character_uid, target_character_id=target_character_id,
             timeout=timeout, verify_after_dispatch=verify_after_dispatch, exact_loadout=exact_loadout,
             force_dispatch=force_dispatch, reset_before_apply=reset_before_apply,
             stable_snapshot_id=stable_snapshot_id,
         )
+        plan = self.read_plan(plan_id) or {}
+        return replace(result, skipped_assignments=tuple(plan.get("skipped_assignments") or ()))

@@ -577,22 +577,7 @@ class StaticCatalogMonsterQueries(
             return None
         row["source"] = self.source_trace(row.get("source_row_id"))
         row["profile"] = self.combat_profile(row["profile_set"], row["pack_id"])
-        row["options"] = self._rows(
-            """
-            SELECT so.category_ordinal, so.option_ordinal, so.category_name_zh,
-                   o.option_id, o.option_type, o.effect_kind, o.damage_type,
-                   o.add_value, o.limit_seconds, o.score, o.buff_asset_path,
-                   o.source_row_id,
-                   ge.gameplay_effect_id AS mechanism_effect_id
-            FROM feast_stage_option AS so
-            JOIN feast_option AS o USING (option_id)
-            LEFT JOIN gameplay_effect_catalog AS ge
-              ON ge.class_path = o.buff_asset_path COLLATE BINARY
-            WHERE so.stage_id = ?
-            ORDER BY so.category_ordinal, so.option_ordinal
-            """,
-            (str(stage_id),),
-        )
+        row["options"] = self._feast_option_rows(stage_id)
         return row
 
     def feast_setup(self, stage_id: str) -> dict[str, Any] | None:
@@ -616,22 +601,24 @@ class StaticCatalogMonsterQueries(
             """,
             (str(stage_id),),
         )
-        stage["options"] = self._rows(
-            """
-            SELECT so.category_ordinal, so.category_name_zh, so.option_ordinal,
-                   o.option_id, o.effect_kind, o.damage_type, o.add_value,
-                   o.limit_seconds, o.score,
-                   ge.gameplay_effect_id AS mechanism_effect_id
-            FROM feast_stage_option AS so
-            JOIN feast_option AS o USING (option_id)
-            LEFT JOIN gameplay_effect_catalog AS ge
-              ON ge.class_path = o.buff_asset_path COLLATE BINARY
-            WHERE so.stage_id = ?
-            ORDER BY so.category_ordinal, so.option_ordinal
-            """,
-            (str(stage_id),),
-        )
+        stage["options"] = self._feast_option_rows(stage_id)
         return stage
+
+    def _feast_option_rows(self, stage_id: str) -> list[dict[str, Any]]:
+        # 同一静态库的正式 ID 连接机制文案；旧目录仍沿用已发布的选项表。
+        current = self._schema_version >= 41
+        table = "feast_all_stage_option" if current else "feast_stage_option"
+        columns = ", d.description_zh,d.player_buffs_json,d.boss_buffs_json,d.option_node_text" if current else ""
+        join = "LEFT JOIN feast_mechanism_detail d USING(option_id)" if current else ""
+        return self._rows(f"""
+            SELECT so.category_ordinal,so.option_ordinal,so.category_name_zh,
+                   o.option_id,o.option_type,o.effect_kind,o.damage_type,o.add_value,
+                   o.limit_seconds,o.score,o.buff_asset_path,o.source_row_id,
+                   ge.gameplay_effect_id AS mechanism_effect_id {columns}
+            FROM {table} so JOIN feast_option o USING(option_id)
+            LEFT JOIN gameplay_effect_catalog ge ON ge.class_path=o.buff_asset_path COLLATE BINARY
+            {join} WHERE so.stage_id=? ORDER BY so.category_ordinal,so.option_ordinal
+        """, (str(stage_id),))
 
     def outer_realm_encounter(
         self, level_config_id: str, level_id: int, fight_stage: str,

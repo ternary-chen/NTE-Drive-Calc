@@ -50,6 +50,9 @@ class InventoryCoreClient(Protocol):
         row: int,
         column: int,
     ) -> Mapping[str, Any]: ...
+    def equip_core(
+        self, *, character: Mapping[str, Any], equipment: Mapping[str, Any],
+    ) -> Mapping[str, Any]: ...
     def unequip_module(
         self,
         *,

@@ -83,9 +83,12 @@ SCHEMA_PATHS = (
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "037_game_static_season_evidence.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "038_game_static_analysis_projection.sql",
     PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "039_game_static_fork_permanent_review.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "040_game_static_summon_season.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "041_game_static_feast_mechanisms.sql",
+    PROJECT_ROOT / "src" / "storage" / "sqlite" / "schema" / "042_game_static_reference_characters.sql",
 )
-SCHEMA_VERSION = 39
-IMPORTER_VERSION = 52
+SCHEMA_VERSION = 42
+IMPORTER_VERSION = 60
 
 TABLE_PATHS = {
     "character": "DataTable/Character/DT_Character.json",
@@ -145,6 +148,7 @@ TABLE_PATHS = {
     "likeability_modify": "DataTable/PackData/ModifyData/DT_LikeabilityModifyData.json",
     "feast_stages": "DataAssets/DataAssetSet/BossDIY/DT_DiyBossStage.json",
     "feast_options": "DataAssets/DataAssetSet/BossDIY/DT_DiyBossOptions.json",
+    "feast_mechanism_text": "Text/ST_UI_hpy.json",
     "divination_text": "DataAssets/DataAssetSet/Divination/ST_Divnationbuff.json",
     "divination_curves": "DataAssets/DataAssetSet/Divination/CT_DivnationBuff.json",
     "clone_system": "DataTable/CloneSystem/CloneSystemDataTable.json",
@@ -182,6 +186,7 @@ TABLE_PATHS = {
 }
 
 STRING_TABLE_SOURCES = frozenset({
+    "feast_mechanism_text",
     "divination_text",
     "string_actor_name",
     "string_clone",
@@ -263,6 +268,20 @@ ADDITIVE_MODIFIER_OPERATION = "EModifyModOp::MODIFY_MODOP_ADDITIVE"
 
 class StaticDatabaseError(RuntimeError):
     """必要的来源数据关系无法标准化。"""
+
+
+def lottery_character_ids(properties: dict[str, Any]) -> list[Any]:
+    # 新版导出使用 Ids；只接受已证实的两个拼写，冲突时拒绝晋升。
+    old = properties.get("CharacterIDs")
+    current = properties.get("CharacterIds")
+    if old is not None and current is not None and old != current:
+        raise StaticDatabaseError("卡池 CharacterIDs / CharacterIds 字段冲突")
+    value = current if current is not None else old
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise StaticDatabaseError("卡池角色列表不是数组")
+    return value
 
 
 def canonical_json(value: Any) -> str:

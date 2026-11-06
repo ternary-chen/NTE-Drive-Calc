@@ -379,6 +379,13 @@ class CatalogImportMixin:
                     raise StaticDatabaseError(
                         f"推荐弧盘不是对象：{character_id}/{ordinal}"
                     )
+                fork_id = recommendation.get("ForkItemId")
+                # 当前官方表以 FName None 明确表示空推荐，不创建虚假弧盘身份。
+                # 缺字段或非空但无对应弧盘仍须失败，不能把解析缺项当成空推荐。
+                if fork_id == "None":
+                    continue
+                if not isinstance(fork_id, str) or not fork_id:
+                    raise StaticDatabaseError(f"推荐弧盘身份缺失：{character_id}/{ordinal}")
                 self.connection.execute(
                     """
                     INSERT INTO character_cultivation_fork_recommendation
@@ -387,7 +394,7 @@ class CatalogImportMixin:
                     (
                         character_id,
                         ordinal,
-                        str(recommendation.get("ForkItemId") or ""),
+                        fork_id,
                         _localized_text(recommendation.get("Desc")),
                         optional_text(recommendation.get("SourceID")),
                     ),

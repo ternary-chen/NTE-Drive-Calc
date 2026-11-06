@@ -11,6 +11,7 @@ from typing import Any
 
 from src.domain.battle_report.targets.encounter import BattleEncounterCandidate, BattleEncounterTargetPreset
 from src.services.battle_report.targets.observation import observed_number
+from src.services.battle_report.targets.feast_profiles import feast_target_profiles
 from src.services.battle_report.environment.outer_realm_period import period_label_for_config
 from src.services.battle_report.targets.candidate_graph import normalized_monster_key
 
@@ -345,7 +346,6 @@ class BattleEncounterCatalogService:
         for stage in stages:
             health_options = [("", "", 0.0)]
             default_options = []
-            resistance_additions: dict[str, float] = {}
             for category in sorted(
                 stage.get("option_categories") or (),
                 key=lambda row: int(row.get("category_ordinal") or 0),
@@ -373,46 +373,33 @@ class BattleEncounterCatalogService:
                 )
                 if highest is not None:
                     default_options.append((category_key, str(highest["option_id"])))
-                    if highest.get("effect_kind") == "resistance_up":
-                        resistance_additions[str(highest.get("damage_type") or "")] = (
-                            float(highest.get("add_value") or 0.0)
-                        )
             difficulties = sorted(
                 stage.get("difficulties") or (),
                 key=lambda row: int(row.get("difficulty_id") or 0),
             )
             for difficulty in difficulties:
                 for health_category, option_id, health_up in health_options:
-                    row = dict(difficulty)
-                    row["health_up"] = float(row.get("health_up") or 0.0) + health_up
-                    base_resistances = {
-                        key: (
-                            float(value.get("resistance_base") or 0.0)
-                            if isinstance(value, Mapping)
-                            else float(value or 0.0)
-                        )
-                        for key, value in (row.get("resistances") or {}).items()
-                    }
-                    for damage_type, addition in resistance_additions.items():
-                        base_resistances[damage_type] = (
-                            base_resistances.get(damage_type, 0.0) + addition
-                        )
-                    row["resistances"] = base_resistances
-                    target = _target_preset(
-                        row,
-                        target_id=stage.get("boss_monster_id"),
-                        target_name=difficulty.get("boss_name_zh"),
-                        monster_class_path=stage.get("boss_monster_id"),
-                    )
-                    if target is None:
+                    selected_options = list(default_options)
+                    if option_id:
+                        selected_options.append((health_category, option_id))
+                    selected_ids = {value for _, value in selected_options}
+                    options = [option for category in stage.get("option_categories", ())
+                               for option in category.get("options", ())
+                               if option.get("option_id") in selected_ids]
+                    members = feast_target_profiles(stage, difficulty, options)
+                    targets = tuple(_target_preset(
+                        {**member["profile"], "monster_level": member["monster_level"],
+                         "profile_set": member.get("profile_set"), "pack_id": member.get("pack_id")},
+                        target_id=member["target_id"], target_name=member["name_zh"],
+                        monster_class_path=member["monster_class_path"],
+                        monster_count=member.get("monster_count", 1),
+                    ) for member in members)
+                    if not targets or any(target is None for target in targets):
                         continue
                     difficulty_id = int(difficulty.get("difficulty_id") or 0)
                     option_suffix = (
                         "" if not option_id else f" · 生命 +{health_up * 100:.0f}%"
                     )
-                    selected_options = list(default_options)
-                    if option_id:
-                        selected_options.append((health_category, option_id))
                     result.append(BattleEncounterCandidate(
                         environment_kind="feast",
                         environment_ref=str(stage.get("stage_id") or ""),
@@ -424,7 +411,7 @@ class BattleEncounterCatalogService:
                         outer_realm_floor=None,
                         difficulty_id=difficulty_id,
                         feast_options=tuple(sorted(selected_options)),
-                        targets=(target,),
+                        targets=targets,
                     ))
         return tuple(result)
 

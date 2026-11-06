@@ -707,6 +707,9 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
 def run_gui():
     """先确认启动权限，再准备账号，最后把明确依赖交给 Qt 入口。"""
     from src.ui.gui_startup import run_gui as start_gui
+    from src.utils.logger import disable_console_logging
+    # 账号初始化前移除可能阻塞的控制台输出，文件日志仍由账号 owner 管理。
+    disable_console_logging()
     _ensure_admin()
     with prepare_application_runtime() as runtime:
         start_gui(runtime.context, runtime.theme_settings, lambda: MainWindow(runtime), on_ready=runtime.accept_release)

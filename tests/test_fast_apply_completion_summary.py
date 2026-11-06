@@ -46,3 +46,23 @@ def test_summary_hides_mismatch_annotation_but_keeps_equipment_counts() -> None:
     )
 
     assert details == "• 角色甲：7 个驱动\n• 角色乙：8 个驱动"
+
+
+def test_partial_and_skipped_roles_are_not_presented_as_complete():
+    skips = [{"kind": "module", "reason": "virtual"}, {"kind": "core", "reason": "missing"}]
+    summary, details = build_fast_apply_completion_summary(
+        [{"role_name": "甲", "module_count": 2, "verified": True, "skipped_assignments": skips}],
+        skipped_roles=[{"role_name": "乙", "skipped_assignments": skips}],
+    )
+    assert "1 个为部分装配" in summary
+    assert "1 个角色无可用装备，未发送指令" in summary
+    assert "甲：部分装配，2 个驱动" in details
+    assert "乙：未装配" in details
+    assert "虚拟占位 1 件、背包中不存在 1 件" in details
+
+
+def test_all_skipped_does_not_claim_dispatch():
+    summary, _ = build_fast_apply_completion_summary([], skipped_roles=[{
+        "role_name": "甲", "skipped_assignments": [{"kind": "module", "reason": "virtual"}],
+    }])
+    assert summary == "没有可用装备，未发送装配指令"

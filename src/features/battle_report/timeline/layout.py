@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from src.services.battle_report.timeline.clock import visible_time_stop_intervals
+
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -106,23 +108,24 @@ def format_analysis_evidence(analysis: BattleAnalysisSnapshot) -> str:
 
 
 def format_time_stop_evidence(analysis: BattleAnalysisSnapshot) -> str:
+    count = len(visible_time_stop_intervals(analysis))
     return {
-        "nte_core": f"采集到时停 {len(analysis.time_stop_intervals)} 段",
+        "nte_core": f"采集到时停 {count} 段",
         "nte_core_partial": (
-            f"实测时停 {len(analysis.time_stop_intervals)} 段（覆盖不完整，缺失区间未知）"
+            f"实测时停 {count} 段（覆盖不完整，缺失区间未知）"
         ),
         "nte_core_plus_inferred_linko_e": (
-            f"采集时停 + 灵可 E 推算 {len(analysis.time_stop_intervals)} 段"
+            f"采集时停 + 灵可 E 推算 {count} 段"
             "（含低置信）"
         ),
         "inferred_q_action": (
-            f"Q 动作推算时停 {len(analysis.time_stop_intervals)} 段（低置信）"
+            f"Q 动作推算时停 {count} 段（低置信）"
         ),
         "inferred_linko_e": (
-            f"灵可 E 推算时停 {len(analysis.time_stop_intervals)} 段（低置信）"
+            f"灵可 E 推算时停 {count} 段（低置信）"
         ),
         "inferred_q_and_linko_e": (
-            f"Q / 灵可 E 推算时停 {len(analysis.time_stop_intervals)} 段（低置信）"
+            f"Q / 灵可 E 推算时停 {count} 段（低置信）"
         ),
     }.get(getattr(analysis, "time_stop_source_kind", "none"), "未取得时停")
 

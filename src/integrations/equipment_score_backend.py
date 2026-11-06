@@ -73,7 +73,7 @@ class NativeEquipmentScorer:
                      profile.get("main_weights") if item["item_type"] == "tape" else None,
                      list(profile.get("zero_weight_stats") or ()) if item["item_type"] == "drive" else []])
 
-    def batch(self, items, profiles, *, queries=(), grade_queries=(), checkpoint=None):
+    def batch(self, items, profiles, *, queries=(), grade_queries=(), checkpoint=None, cache_items=True):
         self._sync()
         items, profiles = [score_item(item) for item in items], list(profiles)
         if len(profiles) > 128 or len(items) > 20_000 or len(items) * len(profiles) > 1_000_000:
@@ -89,6 +89,8 @@ class NativeEquipmentScorer:
             for query, value in zip(queries, row["weights"]):
                 self._put(self._weights, (weights, query), value)
             for index, (item, score, grade) in enumerate(zip(items, row["scores"], row["grades"])):
+                if not cache_items:
+                    break  # 纯批量消费者直接使用响应，不建立随后不会读取的逐件方法缓存。
                 if checkpoint is not None and index % 64 == 0:
                     checkpoint()
                 self._put(self._scores, self._score_key(score_item(item), profile, row["max_weight"]), score)
@@ -97,7 +99,7 @@ class NativeEquipmentScorer:
             self._put(self._grades, (query["score"], query["area"]), grade)
         return result
 
-    def prepare(self, items, profiles, *, checkpoint=None, consume=None):
+    def prepare(self, items, profiles, *, checkpoint=None, consume=None, cache_items=True):
         """热点调用先成批预热，保留方法级兼容入口但不在 N×R 循环中逐件启动进程。"""
         self._sync()
         items, profiles = list(items), list(profiles)
@@ -125,7 +127,7 @@ class NativeEquipmentScorer:
                 queries = list(dict.fromkeys([*self.catalog.gold_base_values, *self.catalog.tape_main_values,
                     *self.catalog.stat_alias_mapping, *self.catalog.stat_alias_mapping.values(),
                     *(name for profile in selected for name in profile["weights"])]))
-                result = self.batch(chunk, selected, queries=queries, checkpoint=checkpoint)
+                result = self.batch(chunk, selected, queries=queries, checkpoint=checkpoint, cache_items=cache_items)
                 if consume is not None:
                     consume(chunk, result)
 
@@ -160,6 +162,23 @@ class NativeEquipmentScorer:
         if key not in self._grades:
             self.batch([], [], grade_queries=[{"score": score, "area": area}])
         return self._grades[key]
+
+    def grades(self, pairs, *, checkpoint=None):
+        """整批冻结一次目录，按协议上限求评级；返回本批值，不受有界缓存淘汰影响。"""
+        self._sync()
+        keys = list(pairs)
+        values = {key: self._grades[key] for key in dict.fromkeys(keys) if key in self._grades}
+        missing = [key for key in dict.fromkeys(keys) if key not in values]
+        for start in range(0, len(missing), 4096):
+            if checkpoint is not None:
+                checkpoint()
+            chunk = missing[start:start + 4096]
+            result = self.batch([], [], grade_queries=[{'score': score, 'area': area} for score, area in chunk],
+                                checkpoint=checkpoint)
+            values.update(zip(chunk, result['grade_results']))
+        if checkpoint is not None:
+            checkpoint()
+        return [values[key] for key in keys]
 
     def accept_grades(self, rows):
         """只由已核对组件/输入身份的正式作业调用，不重新数值求值或启动第二进程。"""

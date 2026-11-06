@@ -7,6 +7,7 @@ from dataclasses import is_dataclass, replace
 from typing import Any
 
 from src.services.battle_report.timeline.clock import (
+    menu_pause_intervals,
     projected_range_duration_us,
     unproject_timeline_time_us,
 )
@@ -131,6 +132,7 @@ class BattleTimelineRangeMixin:
             ),
             intervals=analysis.time_stop_intervals,
             mode=self._time_mode,
+            excluded_intervals=menu_pause_intervals(analysis),
             prefer_interval_end=prefer_interval_end,
         )
 
@@ -153,5 +155,6 @@ class BattleTimelineRangeMixin:
                 getattr(analysis, "range_end_us", analysis.timeline_end_us),
                 intervals=analysis.time_stop_intervals,
                 mode=self._time_mode,
+                excluded_intervals=menu_pause_intervals(analysis),
             ),
         )

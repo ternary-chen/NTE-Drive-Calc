@@ -483,6 +483,10 @@ class BlueprintImportMixin:
         available_source_paths = {
             _asset_path_from_file(root, path).casefold() for path in root.rglob("*.json")
         }
+        gaps = getattr(self, "reviewed_blueprint_gaps", {})
+        available_source_paths.difference_update(
+            "/game/" + path.removesuffix(".json") for path in gaps
+        )
         by_actor, by_code = _character_maps(self.connection)
         next_source_file_id = int(
             self.connection.execute("SELECT COALESCE(MAX(source_file_id), 0) FROM source_file").fetchone()[0]
@@ -509,6 +513,12 @@ class BlueprintImportMixin:
                 "INSERT INTO source_file VALUES (?,?,?,?)",
                 (next_source_file_id, relative_path, file_sha256(path), len(exports)),
             )
+            gap = gaps.get(path.relative_to(root).as_posix().casefold())
+            if gap is not None:
+                if file_sha256(path).lower() != gap["sha256"]:
+                    raise StaticDatabaseError("待隔离蓝图来源变化，必须重新审查")
+                # 文件仍是可追溯的来源；不把残缺属性、Buff 或出站引用投影为已知机制。
+                continue
             self.connection.execute(
                 "INSERT INTO combat_blueprint_asset VALUES (?,?,?,?,?,?)",
                 (
