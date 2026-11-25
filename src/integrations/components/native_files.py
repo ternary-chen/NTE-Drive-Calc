@@ -22,6 +22,10 @@ from src.integrations.components.environment import (
     EquipmentPluginDeploymentError,
     GAME_EXECUTABLE_NAME, game_executable, game_process_running,
 )
+from src.integrations.components.pe_identity import is_reshade
+from src.integrations.components.reshade_chain import (
+    CHAIN_HOST, deployment_paths, prepare_chain, detach_chain, regular_path, is_calc_host, require_detached,
+)
 
 
 @dataclass(frozen=True)
@@ -68,7 +72,7 @@ def _digest(path: Path) -> str:
 
 
 def _target(directory: Path, relative: str) -> Path:
-    if relative not in {*NATIVE_PLUGIN_DEPLOYMENT_PATHS.values(), *HOT_PLUGIN_DEPLOYMENT_PATHS.values(), *PERFORMANCE_DEPLOYMENT_PATHS.values(), *HUD_DEPLOYMENT_PATHS.values(), *TRAINING_DEPLOYMENT_PATHS.values()}:
+    if relative not in {CHAIN_HOST, *NATIVE_PLUGIN_DEPLOYMENT_PATHS.values(), *HOT_PLUGIN_DEPLOYMENT_PATHS.values(), *PERFORMANCE_DEPLOYMENT_PATHS.values(), *HUD_DEPLOYMENT_PATHS.values(), *TRAINING_DEPLOYMENT_PATHS.values()}:
         raise EquipmentPluginDeploymentError('组件记录包含正式布局之外的文件。')
     target = directory / relative
     if target.is_symlink() or not target.resolve().is_relative_to(directory):
@@ -133,6 +137,8 @@ def deploy_native_component_files(
     component_roles: tuple[str, ...] | None = None,
     expected_existing_files: Mapping[str, str | None] | None = None,
     cleanup_legacy_proxy: bool = False,
+    allow_reshade_setup: bool = False,
+    game_directory: bool = False,
 ) -> NativeComponentFilesDeployment:
     probe = game_running or game_process_running
 
@@ -147,7 +153,9 @@ def deploy_native_component_files(
     if not bundle.ready:
         raise EquipmentPluginDeploymentError('；'.join(bundle.issues))
     directory = Path(directory_path).expanduser().resolve()
-    paths = bundle.deployment_paths
+    paths = deployment_paths(bundle, directory) if game_directory else bundle.deployment_paths
+    chain = (prepare_chain(directory, root / bundle.roles['host'], allow_setup=allow_reshade_setup)
+             if paths.get('host') == CHAIN_HOST else None)
     component_roles = tuple(paths) if component_roles is None else component_roles
     if (not component_roles or len(set(component_roles)) != len(component_roles)
             or any(role not in paths for role in component_roles)):
@@ -180,6 +188,8 @@ def deploy_native_component_files(
         return NativeComponentFilesDeployment(directory, None, dict(written))
 
     try:
+        if chain:
+            chain.check(require_idle)
         for relative, source in sources.items():
             require_idle()
             if _digest(source) != expected[relative]:
@@ -193,7 +203,11 @@ def deploy_native_component_files(
             remove_legacy_game_proxy(game_directory=directory, require_idle=require_idle)
         for relative, target in targets.items():
             require_idle()
+            if chain:
+                chain.check(require_idle)
             target = _target(directory, relative)
+            if relative == 'd3d12.dll' and is_reshade(target):
+                raise EquipmentPluginDeploymentError('ReShade 已占用代理入口，未覆盖；请重新检测部署方式。')
             previous = originals[relative]
             if (_digest(target) if target.exists() else None) != previous:
                 raise EquipmentPluginDeploymentError('游戏目录组件在部署前发生变化，已停止部署。')
@@ -202,9 +216,18 @@ def deploy_native_component_files(
             written[relative] = expected[relative]
             if _digest(target) != expected[relative]:
                 raise EquipmentPluginDeploymentError('组件写入后校验失败。')
+        if chain:
+            # 组件完整写入后才连接 ReShade；配置提交后出错须保留宿主供正式清理解除引用。
+            chain.commit(require_idle)
+            chain.check(require_idle, committed=True)
         require_idle()
         return result()
     except Exception as error:
+        if chain and written:
+            raise NativeComponentFilesPendingCleanup(
+                'ReShade 串联部署未完成；已保留本方组件，等待游戏退出后解除串联并清理。',
+                deployment=result(),
+            ) from error
         if written:
             # 普通失败只移除本次已写且字节未变的新文件；旧组件不自动恢复。
             try:
@@ -234,15 +257,17 @@ def deploy_native_plugin(
     game_running: Callable[[], bool | None] | None = None,
     expected_existing_files: Mapping[str, str | None] | None = None,
     cleanup_legacy_proxy: bool = False,
+    allow_reshade_setup: bool = False,
 ) -> NativePluginDeployment:
     require_operation(operation_guard, 'native_load')
     executable = game_executable(game_executable_path)
     bundle = inspect_native_plugin_bundle(application_root)
 
     def wrap(record: NativeComponentFilesDeployment) -> NativePluginDeployment:
+        host = CHAIN_HOST if CHAIN_HOST in record.managed_files else NATIVE_PLUGIN_DEPLOYMENT_PATHS['host']
         return NativePluginDeployment(
-            executable, record.directory / NATIVE_PLUGIN_DEPLOYMENT_PATHS['host'],
-            record.managed_files.get(NATIVE_PLUGIN_DEPLOYMENT_PATHS['host'], ''),
+            executable, record.directory / host,
+            record.managed_files.get(host, ''),
             record.directory, record.backup_path, dict(record.managed_files), deployment_layout=bundle.layout,
         )
 
@@ -253,6 +278,7 @@ def deploy_native_plugin(
             game_running=game_running,
             expected_existing_files=expected_existing_files,
             cleanup_legacy_proxy=cleanup_legacy_proxy,
+            allow_reshade_setup=allow_reshade_setup, game_directory=True,
         ))
     except NativeComponentFilesPendingCleanup as error:
         raise PluginDeploymentPendingCleanup(str(error), deployment=wrap(error.deployment)) from error
@@ -270,10 +296,18 @@ def cleanup_native_component_files(
         raise EquipmentPluginDeploymentError('组件清理目录必须是已记录的绝对路径。')
     directory = directory.resolve()
     files = dict(managed_files)
+    def require_idle():
+        if probe():
+            raise EquipmentPluginDeploymentError('游戏已启动，暂停串联清理。')
     try:
         # 升级后的字节可变；清理归属按正式固定文件名和路径，不依赖历史哈希。
         for relative in files:
             _target(directory, relative)
+        if CHAIN_HOST in files:
+            target = regular_path(directory, CHAIN_HOST)
+            if target.exists() and not is_calc_host(target):
+                raise EquipmentPluginDeploymentError('串联宿主已被其他文件替换，未清理。')
+            detach_chain(directory, require_idle)
         # 先移除自动加载入口；清理不会恢复事务备份。
         ordered = sorted(files, key=lambda relative: relative != NATIVE_PLUGIN_DEPLOYMENT_PATHS['host'])
         for relative in ordered:
@@ -281,6 +315,12 @@ def cleanup_native_component_files(
                 return NativePluginCleanupResult('waiting_game_exit', '游戏在清理过程中启动，剩余组件尚未清理。请完全退出游戏后重新检测。')
             target = _target(directory, relative)
             if target.exists():
+                if relative in {'d3d12.dll', CHAIN_HOST} and is_reshade(regular_path(directory, relative)):
+                    continue  # 即使旧记录同名，也不得把玩家后来安装的 ReShade 当本方文件删除。
+                if CHAIN_HOST in files:
+                    require_detached(directory)
+                if relative == CHAIN_HOST and not is_calc_host(target):
+                    raise EquipmentPluginDeploymentError('串联宿主在清理期间改变，未删除。')
                 target.unlink()
     except EquipmentPluginDeploymentError as error:
         return NativePluginCleanupResult('conflict', str(error))
@@ -316,15 +356,24 @@ def cleanup_manual_native_plugin(
     directory = executable.parent.resolve()
     recorded = dict(managed_files)
     observed: dict[str, str] = {}
+    def require_idle():
+        if probe():
+            raise EquipmentPluginDeploymentError('游戏已启动，暂停串联清理。')
     try:
         for relative in recorded:
             _manual_cleanup_target(directory, relative)
-        for relative in {*NATIVE_PLUGIN_DEPLOYMENT_PATHS.values(), *HOT_PLUGIN_DEPLOYMENT_PATHS.values(), *PERFORMANCE_DEPLOYMENT_PATHS.values(), *HUD_DEPLOYMENT_PATHS.values(), *TRAINING_DEPLOYMENT_PATHS.values()}:
+        for relative in {CHAIN_HOST, *NATIVE_PLUGIN_DEPLOYMENT_PATHS.values(), *HOT_PLUGIN_DEPLOYMENT_PATHS.values(), *PERFORMANCE_DEPLOYMENT_PATHS.values(), *HUD_DEPLOYMENT_PATHS.values(), *TRAINING_DEPLOYMENT_PATHS.values()}:
             target = _manual_cleanup_target(directory, relative)
             if not target.exists():
                 continue
+            if relative in {'d3d12.dll', CHAIN_HOST} and is_reshade(target):
+                continue
+            if relative == CHAIN_HOST and not is_calc_host(target):
+                raise EquipmentPluginDeploymentError('串联宿主位置存在其他文件，未清理。')
             # 显式操作授权这些固定名称，包括未登记旧版；哈希仅防本次并发变化。
             observed[relative] = _digest(target)
+        if CHAIN_HOST in observed:
+            detach_chain(directory, require_idle)
         ordered = sorted(observed, key=lambda relative: relative != NATIVE_PLUGIN_DEPLOYMENT_PATHS['host'])
         for relative in ordered:
             if probe():
@@ -334,6 +383,8 @@ def cleanup_manual_native_plugin(
                 continue
             if _digest(target) != observed[relative]:
                 return NativePluginCleanupResult('conflict', localized_text(None, 'auto.integrations.components.native_files.cleanup_manual_native_plugin.f638da1a4', '{relative} 在核对后发生变化，已保留剩余组件。', relative=f'{relative}'))
+            if CHAIN_HOST in observed:
+                require_detached(directory)
             target.unlink()
     except EquipmentPluginDeploymentError as error:
         return NativePluginCleanupResult('conflict', str(error))
@@ -370,7 +421,10 @@ def update_native_plugins(*, application_root: Path, directory: Path, game_pid: 
     bundle = inspect_native_plugin_bundle(root)
     if not bundle.ready or bundle.layout not in HOT_PLUGIN_LAYOUTS:
         raise NativeHostError('当前整包不支持插件热更新。')
-    paths = bundle.deployment_paths
+    paths = deployment_paths(bundle, directory)
+    if 'mcp_plugin' in paths:
+        # MCP 有独立请求和观察器 owner；当前整包只走退出游戏后的冷部署。
+        return NativePluginUpdateResult('restart_required', '私人开发 MCP 整包需退出游戏后成套部署。', {}, bundle.layout)
     plugins = (USER, COMBAT) + (('NTE_PluginHUD.dll',) if 'hud_plugin' in paths else ()) + (('NTE_PluginPerformance.dll',) if 'performance_plugin' in paths else ()) + (('NTE_PluginTraining.dll',) if 'training_plugin' in paths else ())
     host = _target(directory, paths['host'])
     if not host.is_file() or _digest(host) != bundle.files[bundle.roles['host']]:
@@ -394,7 +448,7 @@ def update_native_plugins(*, application_root: Path, directory: Path, game_pid: 
     if any(m.get('sha256') != original['plugins/' + m['file']] for m in before):
         raise NativeHostError('磁盘插件与驻留映像不同，不能建立本次更新回退。')
     if original == expected:
-        return NativePluginUpdateResult('current', '实际驻留插件已与当前整包一致。', {**original, 'd3d12.dll': _digest(host)}, bundle.layout)
+        return NativePluginUpdateResult('current', '实际驻留插件已与当前整包一致。', {**original, paths['host']: _digest(host)}, bundle.layout)
     # 热更新回退是本次业务事务，不是冷部署策略；未知结果保留精确事务目录。
     staging = Path(tempfile.mkdtemp(prefix='.nte-update-', dir=directory))
     written = {}
@@ -427,7 +481,7 @@ def update_native_plugins(*, application_root: Path, directory: Path, game_pid: 
         }:
             raise NativeHostOutcomeUnknown('新插件驻留映像尚未核对，不能报告更新成功。')
         return NativePluginUpdateResult('updated', '插件已更新并核对驻留映像；同步与战报需重新连接。',
-                                        {**expected, 'd3d12.dll': _digest(host)}, bundle.layout)
+                                        {**expected, paths['host']: _digest(host)}, bundle.layout)
     except NativeHostOutcomeUnknown:
         # 卸载/加载结果未知时不重发、不猜回退；上层维护租约继续保留。
         preserve_transaction = True

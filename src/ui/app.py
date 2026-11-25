@@ -49,6 +49,7 @@ from src.ui.equipment.equipment_presentation import EquipmentPresentation
 from src.features.configuration.page_owner import BasicWeightPage
 from src.features.blueprints.page import BlueprintPage
 from src.features.toolbox.page import ToolboxPage
+from src.ui.composition.neural_composition import build_neural_dependencies
 from src.ui.composition.toolbox_composition import build_toolbox_dependencies, register_toolbox_account_lifecycle
 from src.features.static_catalog.controller import StaticCatalogController
 from src.features.static_catalog.dependencies import (
@@ -299,6 +300,7 @@ class MainWindow(MainWindowLifecycleMixin, MainWindowThemeMixin, MainWindowNavig
                 game_executable=lambda: self.work_mode_service.settings.game_executable,
                 material_importer=self._import_cultivation_materials,
                 navigate_static_catalog=lambda: self._go("static_catalog"),
+                neural=build_neural_dependencies(self),
             ),
             dialog_parent=self,
         )

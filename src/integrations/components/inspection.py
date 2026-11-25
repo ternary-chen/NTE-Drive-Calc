@@ -12,6 +12,7 @@ from src.integrations.components.native_plugin_bundle import (
     NATIVE_PLUGIN_LAYOUT, NativePluginBundleInspection, inspect_native_plugin_bundle,
 )
 from src.integrations.components.environment import EquipmentPluginDeploymentError, game_executable
+from src.integrations.components.reshade_chain import CHAIN_HOST, deployment_paths, chain_configured
 
 _LOCALE_PREFIX = "integration.inspection."
 
@@ -48,10 +49,11 @@ class NativePluginDeploymentInspection:
     issues: tuple[str, ...]
     expected_paths: tuple[str, ...]
     layout: str = NATIVE_PLUGIN_LAYOUT
+    loading_configuration_valid: bool = True
 
     @property
     def files_compatible(self) -> bool:
-        return self.bundle_ready and bool(self.expected_paths) and set(self.files) == set(self.expected_paths) and all(
+        return self.bundle_ready and self.loading_configuration_valid and bool(self.expected_paths) and set(self.files) == set(self.expected_paths) and all(
             item.matches_bundle for item in self.files.values()
         )
 
@@ -73,7 +75,18 @@ def inspect_deployed_native_plugin(
         game_directory = None
         issues.append(_text(
             text_catalog, "issue.game_directory_unknown", "无法核对游戏主程序位置；尚未检查原生部署文件。"))
-    for role, relative in bundle.deployment_paths.items():
+    paths = dict(bundle.deployment_paths)
+    loading_ready = True
+    if game_directory is not None:
+        try:
+            paths = deployment_paths(bundle, game_directory)
+            if paths.get('host') == CHAIN_HOST and not chain_configured(game_directory):
+                loading_ready = False
+                issues.append('ReShade 串联尚未配置；请在环境设置中显式部署计算器组件。')
+        except (EquipmentPluginDeploymentError, OSError) as error:
+            loading_ready = False
+            issues.append(str(error))
+    for role, relative in paths.items():
         source = bundle.roles.get(role, "")
         expected = bundle.files.get(source, "")
         expected_size = bundle.file_sizes.get(source)
@@ -107,5 +120,5 @@ def inspect_deployed_native_plugin(
         )
     return NativePluginDeploymentInspection(
         game_directory, MappingProxyType(files), bundle.ready, tuple(issues),
-        expected_paths=tuple(bundle.deployment_paths.values()), layout=bundle.layout,
+        expected_paths=tuple(paths.values()), layout=bundle.layout, loading_configuration_valid=loading_ready,
     )

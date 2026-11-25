@@ -47,6 +47,7 @@ from src.features.toolbox.rewind.dual_results import RewindDualResultsMixin
 from src.features.toolbox.rewind.slot_ui import RewindSlotUiMixin
 from src.features.toolbox.rewind.percent_input import RewindPercentInput
 from src.features.toolbox.rewind.profile_ui import RewindProfileUiMixin
+from src.features.toolbox.neural_entry import build_neural_entry
 from src.features.toolbox.static_catalog_entry import build_static_catalog_entry
 from src.features.toolbox.toolbox_navigation import (
     CultivationToolboxNavigation,
@@ -66,6 +67,7 @@ class ToolboxPage:
         self._stack: QStackedWidget | None = None
         self._home: QWidget | None = None
         self._cultivation_navigation: CultivationToolboxNavigation | None = None
+        self._neural_dialog = None
         self._rewind_dialog: _RewindRecommendationDialog | None = None
 
     def build(self) -> QWidget:
@@ -79,9 +81,13 @@ class ToolboxPage:
         self._stack.setObjectName("toolboxPageStack")
         page_layout.addWidget(self._stack)
 
-        home = QWidget(self._stack)
+        home = QScrollArea(self._stack)
+        home.setWidgetResizable(True)
+        home.setFrameShape(QFrame.NoFrame)
         home.setObjectName("toolboxHomePage")
-        layout = QVBoxLayout(home)
+        body = QWidget(home)
+        home.setWidget(body)
+        layout = QVBoxLayout(body)
         layout.setContentsMargins(30, 28, 30, 28)
         layout.setSpacing(12)
 
@@ -132,6 +138,7 @@ class ToolboxPage:
             navigate=self._dependencies.navigate_static_catalog,
             text_catalog=getattr(self, 'text_catalog', None),
         ))
+        layout.addWidget(build_neural_entry(body, self._open_neural_rendering))
         layout.addStretch()
         self._home = home
         self._stack.addWidget(home)
@@ -156,6 +163,23 @@ class ToolboxPage:
             self._rewind_dialog.shutdown()
         if self._cultivation_navigation is not None:
             self._cultivation_navigation.discard()
+
+        if self._neural_dialog is not None:
+            from src.app.page_tasks import delete_when_page_tasks_finish
+            self._neural_dialog.shutdown()
+            delete_when_page_tasks_finish(self._neural_dialog)
+            self._neural_dialog = None
+
+    def _open_neural_rendering(self):
+        if self._dependencies.neural is None:
+            QMessageBox.information(self._dialog_parent, 'DLSS 神经渲染', '当前入口尚未注入环境服务。')
+            return
+        if self._neural_dialog is None:
+            from src.features.toolbox.neural_dialog import NeuralRenderingDialog
+            self._neural_dialog = NeuralRenderingDialog(self._dependencies.neural, self._dialog_parent)
+        self._neural_dialog.show()
+        self._neural_dialog.raise_()
+        self._neural_dialog.activateWindow()
 
     def is_rewind_running(self) -> bool:
         """取消不是结束：账号入口等待已接收的输入通道物理退场。"""

@@ -874,6 +874,8 @@ Core 对每条请求独立冻结及核对 epoch。批次成功、失败或取消
 
 ## 10. 工具与游戏资料库
 
+本实验分支在工具首页提供组件检测、配置和恢复。使用步骤与已验证范围见 [DLSS 神经渲染实验工具](features/dlss-neural-rendering.md)。
+
 资料库、单／多角色养成计算器及材料展示的当前页面行为见[工具与游戏资料库](features/tools-and-catalog.md)；
 最低体力和多角色合并算法见[养成体力规划](reference/progression-stamina-calculator.md)。
 

@@ -8,6 +8,8 @@ from typing import Mapping
 from src.domain.localization.catalog import localized_text
 from src.integrations.components.legacy_game_proxy import legacy_game_proxy_present
 from src.integrations.components.native_plugin_bundle import NATIVE_PLUGIN_LAYOUTS
+from src.integrations.components.pe_identity import is_reshade
+from src.integrations.components.reshade_chain import CHAIN_HOST
 from src.integrations.components.inspection import inspect_deployed_native_plugin
 from src.integrations.components.environment import (
     EquipmentPluginDeploymentError, mod_workspace_registry_snapshot,
@@ -124,6 +126,15 @@ def inspect_upgrade_evidence(*, application_root: Path, game_path: str,
                                "Loader 工作区核对失败。"),
                 type(error).__name__, method)
     else:
+        try:
+            reshade_present = is_reshade(game_directory / 'd3d12.dll')
+        except OSError as error:
+            return UpgradeEvidence('path_unknown', '无法识别游戏目录代理文件。', type(error).__name__, method)
+        if (not has_record and reshade_present
+                and not (game_directory / CHAIN_HOST).exists()
+                and not (game_directory / 'NTE_Capture.dll').exists()):
+            return UpgradeEvidence('none', '检测到玩家安装的 ReShade，尚无计算器部署记录。',
+                                   '可在环境设置中部署计算器组件并配置串联。', method)
         if not (has_record or (game_directory / "d3d12.dll").is_file()
                 or (game_directory / "NTE_Capture.dll").is_file()):
             return UpgradeEvidence(

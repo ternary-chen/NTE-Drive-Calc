@@ -18,6 +18,7 @@ from src.services.progression.owned_material_import import ImportedOwnedMaterial
 from src.services.rewind.recommendation import (
     RewindShapeRecommendationService,
 )
+from src.features.toolbox.neural_controller import NeuralDependencies
 
 
 def cultivation_context_identity(
@@ -48,6 +49,7 @@ class ToolboxDependencies:
     cultivation_asset_root: Callable[[], Path] | None = None
     cultivation_material_importer: Callable[[], ImportedOwnedMaterials] | None = None
     cultivation_history_service_factory: Callable[[], CultivationHistoryService] | None = None
+    neural: NeuralDependencies | None = None
 
     def rewind_service(self) -> RewindShapeRecommendationService:
         return self.rewind_service_factory()

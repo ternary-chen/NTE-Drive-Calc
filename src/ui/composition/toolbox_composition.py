@@ -21,6 +21,7 @@ def build_toolbox_dependencies(
     context: AppContext, *, operation_entry: Callable[..., Any], operation_unavailable: Callable[..., Any],
     operation_guard: Callable[..., Any], operation_generation: Callable[[], object],
     material_importer: Callable[[], ImportedOwnedMaterials], navigate_static_catalog: Callable[[], None],
+    neural=None,
     game_executable: Callable[[], str] | None = None,
 ) -> ToolboxDependencies:
     def identity():
@@ -47,6 +48,7 @@ def build_toolbox_dependencies(
         cultivation_material_importer=material_importer, cultivation_context_identity=identity,
         cultivation_asset_root=lambda: context.paths.cultivation_asset_root,
         navigate_static_catalog=navigate_static_catalog,
+        neural=neural,
     )
 
 

@@ -247,6 +247,7 @@ def deploy_native_plugin_from_settings(window) -> None:
                 game_executable_path=executable,
                 operation_guard=guard,
                 cleanup_legacy_proxy=True,
+                allow_reshade_setup=True,
             )
 
         try:
