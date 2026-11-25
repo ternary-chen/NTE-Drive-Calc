@@ -65,13 +65,16 @@ class StaticCatalogFormulaQueries:
             ) from exc
         self._connection.row_factory = sqlite3.Row
         try:
-            version = self._scalar(
+            version = self._integer_scalar(
                 "SELECT MAX(version) FROM schema_migration"
             )
         except sqlite3.Error as exc:
             self.close()
             raise StaticGameDataError("静态数据库缺少公式资料 schema") from exc
-        self._schema_version = int(version or 0)
+        except StaticGameDataError:
+            self.close()
+            raise
+        self._schema_version = version
         if not MINIMUM_SUPPORTED_SCHEMA_VERSION <= self._schema_version <= SCHEMA_VERSION:
             self.close()
             raise StaticGameDataError(
@@ -96,13 +99,22 @@ class StaticCatalogFormulaQueries:
             connection.close()
             self._connection = None
 
-    def _scalar(self, sql: str, parameters: tuple[object, ...] = ()) -> object:
+    def _scalar(self, sql: str, parameters: tuple[object, ...] = ()) -> str | int | float | bytes | None:
         if self._connection is None:
             raise StaticGameDataError("公式资料静态查询已关闭")
         row = self._connection.execute(sql, parameters).fetchone()
         if row is None:
             raise StaticGameDataError("公式资料静态查询没有返回记录")
         return row[0]
+
+    def _integer_scalar(self, sql: str, parameters: tuple[object, ...] = ()) -> int:
+        value = self._scalar(sql, parameters)
+        if value is None:
+            raise StaticGameDataError("公式资料静态整数查询返回 NULL")
+        try:
+            return int(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise StaticGameDataError("公式资料静态整数查询返回非法值") from exc
 
     def _table_count(self, table: str) -> int:
         queries = {
@@ -120,7 +132,7 @@ class StaticCatalogFormulaQueries:
             sql = queries[table]
         except KeyError as exc:
             raise StaticGameDataError("公式资料请求了未登记的静态表") from exc
-        return int(self._scalar(sql))
+        return self._integer_scalar(sql)
 
     def evidence_snapshot(self) -> StaticFormulaEvidenceSnapshot:
         """Return only auditable aggregate evidence from known schema-v29 tables."""
@@ -133,35 +145,35 @@ class StaticCatalogFormulaQueries:
         if dataset is None:
             raise StaticGameDataError("静态数据库缺少 dataset 元信息")
 
-        dot_rows = int(self._scalar(
+        dot_rows = self._integer_scalar(
             """
             SELECT COUNT(*) FROM combat_blueprint_tag
             WHERE lower(tag_name) = lower(?)
             """,
             ("State.Damage.Dot",),
-        ))
-        dot_assets = int(self._scalar(
+        )
+        dot_assets = self._integer_scalar(
             """
             SELECT COUNT(DISTINCT source_asset_path) FROM combat_blueprint_tag
             WHERE lower(tag_name) = lower(?)
             """,
             ("State.Damage.Dot",),
-        ))
-        attachment_assets = int(self._scalar(
+        )
+        attachment_assets = self._integer_scalar(
             """
             SELECT COUNT(DISTINCT source_asset_path) FROM combat_blueprint_tag
             WHERE lower(tag_name) = lower(?)
             """,
             ("State.Damage.Attachment",),
-        ))
-        final_damage_rows = int(self._scalar(
+        )
+        final_damage_rows = self._integer_scalar(
             """
             SELECT COUNT(*) FROM buff_modifier
             WHERE lower(property_id) = lower(?)
             """,
             ("FinalDamageUp",),
-        ))
-        dot_final_rows = int(self._scalar(
+        )
+        dot_final_rows = self._integer_scalar(
             """
             SELECT COUNT(*) FROM buff_modifier
             WHERE lower(property_id) = lower(?)
@@ -171,7 +183,7 @@ class StaticCatalogFormulaQueries:
               )
             """,
             ("FinalDamageUp", "%state.damage.dot%", "%state.damage.dot%"),
-        ))
+        )
         definition_counts = {
             str(row[0]): int(row[1])
             for row in self._connection.execute(

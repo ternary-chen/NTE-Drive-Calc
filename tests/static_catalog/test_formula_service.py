@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import unittest
+import sqlite3
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from src.services.static_catalog.formulas.service import StaticCatalogFormulaService
 from src.storage.sqlite.catalog.static_catalog_formula_queries import (
@@ -33,6 +36,25 @@ def evidence_snapshot() -> StaticFormulaEvidenceSnapshot:
 
 
 class StaticCatalogFormulaServiceTests(unittest.TestCase):
+    def test_healing_coverage_is_one_display_entry(self) -> None:
+        domain = StaticCatalogFormulaService.from_snapshot(evidence_snapshot())
+        row = next(row for row in domain.counterfactual_support if row.key == "healing_without_damage_consumer")
+        self.assertEqual(row.covered_entities, ("纯治疗输出",))
+
+    def test_invalid_schema_number_closes_formula_database(self) -> None:
+        from src.storage.sqlite.static_game_data_dao import StaticGameDataError
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "broken.sqlite3"
+            connection = sqlite3.connect(path)
+            connection.execute("CREATE TABLE schema_migration(version)")
+            connection.execute("INSERT INTO schema_migration VALUES ('invalid')")
+            connection.commit()
+            connection.close()
+            with self.assertRaises(StaticGameDataError):
+                StaticCatalogFormulaQueries(path)
+            path.unlink()
+
     def test_weave_explains_copy_split_without_claiming_runtime_order(self) -> None:
         domain = StaticCatalogFormulaService.from_snapshot(evidence_snapshot())
         weave = next(row for row in domain.formulas if row.key == "weave_followup")

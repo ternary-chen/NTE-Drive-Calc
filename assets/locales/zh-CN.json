@@ -9522,6 +9522,8 @@
     "auto.storage.sqlite.catalog.fork_permanent_projection.resolve_projection_rows.t2ad7a874": "各精炼等级的弧盘 Buff 已入库，未见无前置条件的直接面板修饰器",
     "auto.storage.sqlite.catalog.static_catalog_character_queries.character_catalog_metadata.t1464e6de": "静态数据库缺少 dataset 元信息",
     "auto.storage.sqlite.catalog.static_catalog_formula_queries.scalar.t29bb87e3": "公式资料静态查询已关闭",
+    "catalog.formula.integer_query.empty": "公式资料静态整数查询返回 NULL",
+    "catalog.formula.integer_query.invalid": "公式资料静态整数查询返回非法值",
     "auto.storage.sqlite.catalog.static_catalog_formula_queries.scalar.t8b26907e": "公式资料静态查询没有返回记录",
     "auto.storage.sqlite.catalog.static_catalog_formula_queries.topple_level_curve.td5f0aee4": "倾陷等级曲线缺少完整角色等级 1–80",
     "auto.storage.sqlite.catalog.static_catalog_formula_queries.init.tf81783cc": "无法只读打开公式资料所需的静态数据库",

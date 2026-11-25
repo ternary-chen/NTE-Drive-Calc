@@ -694,7 +694,7 @@ def _support_entries(
             consumer_entries=("StaticCatalogFormulaService",),
             gap_codes=(),
             covered_dataset=dataset,
-            covered_entities=("纯治疗输出"),
+            covered_entities=("纯治疗输出",),
             limitations=("not_applicable 只针对伤害反事实；不是治疗模拟已完整。",),
         ),
         CounterfactualSupportEntry(
